@@ -1,0 +1,15 @@
+# Default training configuration for the HRNet keypoint detector.
+model:
+  num_keypoints: 13
+  backbone: hrnet_w32  # TODO: swap in a real HRNet backbone (e.g. via timm)
+
+data:
+  train_split: 0.70
+  val_split: 0.15
+  test_split: 0.15
+
+training:
+  epochs: 100
+  batch_size: 16
+  learning_rate: 1.0e-4
+  device: cuda

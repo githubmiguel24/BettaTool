@@ -1,0 +1,142 @@
+# Shared defaults for every experiment config. An experiment config (e.g.
+# hrnet_w32.yaml) is loaded and deep-merged on top of this file by
+# training/utils/config.py — only the keys that differ need to be repeated
+# there. Nothing here is read positionally; every hyperparameter,  path, and
+# convention used anywhere in training/ or app/perception/ must trace back
+# to a key in this file or its overrides. No magic numbers in code.
+
+seed: 42
+deterministic_cudnn: true
+
+keypoints_config: training/configs/keypoints.yaml
+
+paths:
+  images_dir: data/raw
+  annotations_dir: data/annotations
+  splits_dir: data/splits
+  runs_dir: training/runs
+
+# --- dataset size --------------------------------------------------------
+# Updated 2026-09-15: the annotated set now totals ~1,750 images (was
+# ~1,500 at the time Build Prompt v1 / the manuscript's Chapter 3 draft was
+# written). Splits are expressed as fractions so this number never has to
+# be hardcoded anywhere else — training/splitting.py reads whatever count
+# actually exists in the annotation file and applies these fractions.
+dataset:
+  expected_total_images: 1750
+  splits:
+    train: 0.70
+    val: 0.15
+    test: 0.15
+  # Add a 4th partition (e.g. `calib: 0.10`, renormalizing the rest) by
+  # editing this mapping alone — training/splitting.py iterates over
+  # whatever partitions are declared here.
+  group_by: specimen_id
+  stratify_by: [source, color_morph, has_occlusion]
+
+# --- image geometry -------------------------------------------------------
+image:
+  input_size: 384          # crop space, square, letterbox-padded
+  heatmap_size: 96          # stride 4 relative to input_size
+  stride: 4
+  bbox_padding: 0.15        # fraction of fish_box size added on each side before crop
+  imagenet_mean: [0.485, 0.456, 0.406]
+  imagenet_std: [0.229, 0.224, 0.225]
+
+# --- units contract --------------------------------------------------------
+# heatmap space  : raw soft-argmax output, 96x96
+# crop space     : heatmap_space * stride -> 384x384; training loss and
+#                  Sigma prediction both live here
+# original space : variable per image; evaluation metrics and the downstream
+#                  GUM tier live here. app/perception/geometry.py is the only
+#                  place that converts between these three spaces.
+units:
+  sigma_space: crop           # Sigma is predicted and clamped in crop-space px
+  sigma_min_px: 0.5
+  sigma_max_px: 64.0
+  rho_max: 0.95
+  covariance_eps: 1.0e-3
+
+caching:
+  cache_crops_in_ram: true
+  memory_budget_mb: 1024
+
+augmentation:
+  train:
+    hflip_p: 0.5
+    rotate_deg: 15
+    scale_range: [0.85, 1.15]
+    translate_frac: 0.05
+    color_jitter:
+      brightness: 0.3
+      contrast: 0.3
+      saturation: 0.35
+      hue: 0.05
+    blur_p: 0.2
+    jpeg_artifact_p: 0.2
+    coarse_dropout_p: 0.3
+    coarse_dropout_max_holes: 4
+    coarse_dropout_hole_size_frac: 0.12
+  eval_augmentation_free: true
+
+model:
+  backbone: hrnet_w32
+  backbone_source: auto      # auto | timm | custom  (see app/perception/hrnet.py)
+  pretrained: imagenet       # imagenet | coco_pose | none  -- see OPEN-QUESTIONS.md #1
+  detach_mu_for_covariance_stage1: true
+  detach_mu_for_covariance_stage2: false
+  visibility_threshold: 0.5   # probability above which a landmark is reported as present
+
+loss:
+  heatmap_target_sigma_px: 2.0     # Gaussian target sigma, at heatmap (96x96) scale
+  lambda_heatmap: 1.0
+  lambda_mu_l1: 1.0
+  lambda_visibility: 1.0
+  lambda_nll_target: 1.0
+  nll_ramp_epochs: 10              # linear ramp of lambda_nll over first N epochs of stage 2
+  beta_nll: 0.5                    # beta-NLL exponent (Seitzer et al. 2022); 0 disables it
+  grad_clip_norm: 1.0
+
+training:
+  stage1_epochs: 40
+  stage2_epochs: 110
+  batch_size: 8
+  grad_accum_steps: 2              # effective batch = batch_size * grad_accum_steps = 16
+  amp: true
+  optimizer:
+    name: adamw
+    lr_heads: 1.0e-3
+    lr_backbone: 1.0e-4
+    weight_decay: 1.0e-4
+  schedule:
+    name: cosine
+    warmup_epochs: 3
+    restart_at_stage2: true
+  early_stopping:
+    active_from_stage: 2
+    patience: 25
+    metric: val_radial_error_px
+  checkpoint:
+    save_every_epoch: true
+    keep: [best, last]
+  num_workers: 4
+  device: cuda
+
+tta:
+  enabled_eval: true
+  enabled_train_val: false
+  half_pixel_shift_correction: true
+
+evaluation:
+  pck_alphas: [0.02, 0.05, 0.10]
+  body_length_landmarks: [snout_tip, peduncle_midpoint]  # peduncle midpoint = mean(peduncle_top, peduncle_bottom)
+  coverage_levels: [0.68, 0.95]
+  bootstrap_resamples: 2000
+  ci_method: wilson                # wilson | clopper_pearson (near 0/1 boundaries)
+  export_best_worst_k: 20
+
+logging:
+  log_every_n_steps: 20
+  metric_csv_filename: metrics.csv
+  save_config_snapshot: true
+  save_git_commit_hash: true

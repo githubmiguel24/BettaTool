@@ -1,0 +1,16 @@
+# Additional dependencies for training/ (Build Prompt v2). Not required to
+# run the FastAPI app itself — install these on your Kaggle notebook / local
+# GPU machine, wherever you actually train.
+#
+#   pip install -r requirements.txt -r requirements-training.txt
+#
+# IMPORTANT: neither `timm` nor `albumentations` could be installed in the
+# sandbox this codebase was authored in (see training/README.md, "Known
+# limitations" — outbound PyPI access was blocked at the network level).
+# Every line below is therefore UNVERIFIED in this repository; pin exact
+# versions here once you've confirmed what installs cleanly in your own
+# environment (Kaggle images generally ship recent-enough versions of both).
+timm>=1.0.0
+albumentations>=1.4.0
+matplotlib>=3.8
+tensorboard>=2.17

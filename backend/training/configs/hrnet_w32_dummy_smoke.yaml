@@ -1,0 +1,18 @@
+# Same as hrnet_w32.yaml, but pointed at the synthetic dataset produced by
+# `python -m training.make_dummy_dataset --out data/raw_dummy --n 200`.
+#
+# Use this to sanity-check the training loop end-to-end on your own machine
+# before real annotations are ready — NOT for anything that touches real
+# results. Once real data lands under data/raw + data/annotations (the
+# base.yaml defaults), switch back to hrnet_w32.yaml and delete this file or
+# leave it for the next smoke test.
+#
+#   python -m training.train_hrnet --config training/configs/hrnet_w32_dummy_smoke.yaml
+
+experiment_name: hrnet_w32_dummy_smoke
+
+paths:
+  images_dir: data/raw_dummy/images
+  annotations_dir: data/raw_dummy
+  # splits_dir left at base.yaml's default (data/splits) — that's already
+  # where `python -m training.splitting` wrote train/val/test.json.

@@ -1,0 +1,79 @@
+# Single source of truth for the 13-landmark schema used by the perceptual
+# tier. `app/perception/keypoints.py` mirrors this exact order and names;
+# `tests/test_keypoints_consistency.py` asserts the two never drift apart.
+#
+# fish_box (the Roboflow export's 14th annotation) is NOT a landmark and is
+# never listed here — it is parsed separately as the crop region (see
+# training/dataset.py). num_keypoints is fixed at 13.
+
+num_keypoints: 13
+
+landmarks:
+  - index: 0
+    name: snout_tip
+  - index: 1
+    name: eye_center
+  - index: 2
+    name: dorsal_base_ant
+  - index: 3
+    name: dorsal_base_post
+  - index: 4
+    name: dorsal_tip
+  - index: 5
+    name: peduncle_top
+  - index: 6
+    name: peduncle_bottom
+  - index: 7
+    name: caudal_tip_upper
+  - index: 8
+    name: caudal_tip_lower
+  - index: 9
+    name: caudal_center
+  - index: 10
+    name: anal_base_ant
+  - index: 11
+    name: anal_base_post
+  - index: 12
+    name: anal_tip
+
+# Skeleton edges, purely for overlay visualization (training/viz/overlay.py).
+# Each pair is a (landmark_index, landmark_index) tuple.
+skeleton:
+  - [0, 1]    # snout_tip -> eye_center
+  - [1, 2]    # eye_center -> dorsal_base_ant
+  - [2, 3]    # dorsal_base_ant -> dorsal_base_post
+  - [3, 4]    # dorsal_base_post -> dorsal_tip
+  - [3, 5]    # dorsal_base_post -> peduncle_top
+  - [5, 6]    # peduncle_top -> peduncle_bottom
+  - [5, 7]    # peduncle_top -> caudal_tip_upper
+  - [6, 8]    # peduncle_bottom -> caudal_tip_lower
+  - [7, 9]    # caudal_tip_upper -> caudal_center
+  - [8, 9]    # caudal_tip_lower -> caudal_center
+  - [6, 10]   # peduncle_bottom -> anal_base_ant
+  - [10, 11]  # anal_base_ant -> anal_base_post
+  - [11, 12]  # anal_base_post -> anal_tip
+  - [0, 12]   # snout_tip -> anal_tip (belly line, closes the outline)
+
+# Horizontal-flip permutation map. This MUST be the identity permutation:
+# every one of the 13 landmarks lies on the midline or is a single
+# dorsal/ventral point (never a bilateral left/right pair), because all
+# photographs are lateral-flare shots of one side of the fish. A human-pose
+# left-shoulder/right-shoulder-style swap map does NOT apply here.
+#
+# training/dataset.py and training/transforms.py import this list (never
+# hardcode it) and training/tests/test_flip_map.py asserts flip_map[i] == i
+# for all i, and that applying it twice is a no-op, precisely so a future
+# contributor cannot paste in a bilateral swap map by mistake.
+flip_map: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+
+# Visibility flag schema (extended beyond plain COCO visibility — see
+# training/dataset.py and app/perception/keypoints.py for the enum).
+#   2  = clearly visible                    -> heatmap+NLL trained, vis target 1
+#   1  = visible but ambiguous / occluded    -> heatmap+NLL trained, vis target 1
+#   0  = occluded, position inferable        -> heatmap+NLL masked,  vis target 0
+#  -1  = out of frame                        -> heatmap+NLL masked,  vis target 0
+visibility_flags:
+  clear: 2
+  ambiguous: 1
+  occluded: 0
+  out_of_frame: -1

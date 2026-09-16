@@ -1,0 +1,12 @@
+# Main experiment config. Deep-merged on top of base.yaml by
+# training/utils/config.py — only overrides and run identification live here.
+#
+#   python -m training.train_hrnet --config training/configs/hrnet_w32.yaml
+
+experiment_name: hrnet_w32_nll
+
+# Everything below only needs to state what differs from base.yaml.
+# (Currently nothing does — this file exists so a second experiment, e.g.
+# hrnet_w18_fallback.yaml per base.yaml's OOM fallback order, can override
+# just `model.backbone: hrnet_w18` and `image.input_size: 320` without
+# touching base.yaml.)

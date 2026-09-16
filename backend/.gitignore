@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.pth
+*.pt
+.env
+
+# Large/gitignored data assets — keep folder structure via .gitkeep
+data/raw/*
+!data/raw/.gitkeep
+data/annotations/*
+!data/annotations/.gitkeep
+data/splits/*
+!data/splits/.gitkeep
+app/perception/weights/*
+!app/perception/weights/.gitkeep
+
+.pytest_cache/
+.DS_Store
+
