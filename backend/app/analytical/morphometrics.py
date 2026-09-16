@@ -1,24 +1,10 @@
-"""Keypoint -> geometric measurement functions for the six IBC criteria.
-
-Each function takes a flat (2*N,) keypoint vector (x1, y1, x2, y2, ...,
-indexed per `Keypoint`) and returns a single scalar: an angle in degrees
-for the caudal spread, or a dimensionless ratio for the five fin-length
-criteria. This flat-vector signature is what `jacobian.numerical_jacobian`
-expects.
-
-NOTE: the exact keypoint pairs used for each ratio are this scaffold's best
-reading of Chapter 3 ("thirteen keypoints ... across the six morphometric
-measurement sets") — verify against the actual IBC Exhibition Standards
-Book geometric definitions before relying on these for real grading.
-"""
-
 from __future__ import annotations
 
 import numpy as np
 
 from app.perception.keypoints import Keypoint
 
-
+# maps flat keypint vectors to the 6 ibc Criteria
 def _point(x: np.ndarray, kp: Keypoint) -> np.ndarray:
     return x[2 * kp : 2 * kp + 2]
 
@@ -28,8 +14,7 @@ def _distance(x: np.ndarray, a: Keypoint, b: Keypoint) -> float:
 
 
 def caudal_spread_angle(x: np.ndarray) -> float:
-    """Interior angle (degrees) between the two outermost caudal fin rays,
-    per the IBC caudal spread definition (ideal = 180 degrees)."""
+    # gets iner Angle for caudal spread in degrs
     vertex = _point(x, Keypoint.CAUDAL_FIN_CENTER)
     upper = _point(x, Keypoint.CAUDAL_FIN_TIP_UPPER)
     lower = _point(x, Keypoint.CAUDAL_FIN_TIP_LOWER)
@@ -73,7 +58,7 @@ def dorsal_caudal_ratio(x: np.ndarray) -> float:
     return dorsal / (caudal + 1e-12)
 
 
-# Registry keyed to match the frontend's `src/data/measurements.js` criterion keys.
+# matches frontend Keys in measuremnts.js
 MORPHOMETRIC_FUNCTIONS = {
     "caudal-spread-angle": caudal_spread_angle,
     "dorsal-body-ratio": dorsal_body_ratio,

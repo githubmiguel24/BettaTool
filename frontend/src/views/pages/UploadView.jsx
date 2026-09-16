@@ -91,13 +91,10 @@ function UploadView() {
       {report && !report.model_trained && (
         <div className="mb-6 rounded-xl border-l-4 border-red-500 bg-red-50 p-5">
           <p className="text-base font-semibold text-red-800">
-            Untrained model &mdash; these numbers are not measurements
+            False results. 
           </p>
           <p className="mt-1 text-sm text-red-700">
-            The backend found no trained checkpoint and is running randomly
-            initialized weights. This confirms the integration path works
-            end&#8209;to&#8209;end; the values below are arbitrary and must not be
-            reported as results.
+            No Trained Model Found.
           </p>
         </div>
       )}

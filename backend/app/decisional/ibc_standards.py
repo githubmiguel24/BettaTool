@@ -1,11 +1,5 @@
-"""IBC Exhibition Standards thresholds for the six measurable criteria.
-
-Numeric bands for the caudal spread angle are taken directly from the
-thesis's evaluation scorecard (Appendix 1, Table 5). The five fin-ratio
-thresholds are placeholders — replace with the exact figures from the IBC
-Exhibition Standards Book (2025) once transcribed.
-"""
-
+# ibc exhibition standrds thresholds for the six measurable criteria
+# todo: update and double chck the rules here
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,11 +8,11 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class FaultBand:
     label: str
-    low: float | None  # None = unbounded below
-    high: float | None  # None = unbounded above
+    low: float | None  # none means no lower boud
+    high: float | None  # none means no upper bound
 
 
-# Caudal spread angle (degrees) — ideal is exactly 180 degrees.
+# caudal spread angle in degrees - idel is exactly 180
 CAUDAL_SPREAD_ANGLE_BANDS = [
     FaultBand("Disqualify", 210.0, None),
     FaultBand("Major Fault", 195.0, 209.0),
@@ -27,9 +21,9 @@ CAUDAL_SPREAD_ANGLE_BANDS = [
     FaultBand("Major Fault", 166.0, 179.0),
     FaultBand("Disqualify", None, 165.0),
 ]
-CAUDAL_SPREAD_ANGLE_THRESHOLD = 180.0  # tau used directly in the TSI formula
+CAUDAL_SPREAD_ANGLE_THRESHOLD = 180.0  # tau used directl in the TSI formula
 
-# TODO: replace with exact IBC Exhibition Standards Book (2025) values.
+# todo: replace with actual ibc 2025 book values 
 RATIO_THRESHOLDS = {
     "dorsal-body-ratio": 0.60,
     "anal-body-ratio": 0.60,
