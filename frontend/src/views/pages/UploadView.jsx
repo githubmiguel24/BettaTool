@@ -126,7 +126,7 @@ function UploadView() {
                     onChange={(e) => setShowOverlay(e.target.checked)}
                     className="h-4 w-4 rounded border-slate-300"
                   />
-                  Landmarks
+                  Keypoints
                 </label>
               )}
             </div>
