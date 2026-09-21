@@ -38,14 +38,50 @@ def build_backbone(source: str = "auto") -> tuple[nn.Module, int]:
                 stacklevel=2,
             )
         else:
+            # IMPORTANT: request the four RESOLUTION BRANCHES (strides 4/8/16/32),
+            # not timm's classification head.
+            #
+            # `out_indices=(4,)` with timm's default `feature_location="incre"`
+            # returns a single 1024-channel map at stride 32 — the input to the
+            # ImageNet classifier, NOT a pose representation. For a 384x384 crop
+            # that is 12x12, while every downstream consumer here (heatmap
+            # targets rendered at `image.heatmap_size: 96`, `HEATMAP_STRIDE`,
+            # `mu_to_crop_space`) requires stride 4 -> 96x96. That mismatch used
+            # to surface far downstream as a shape error inside heatmap_mse_loss.
+            #
+            # `feature_location=""` disables the incre/downsamp/final_layer
+            # classification head so the raw branch channels come through
+            # (32/64/128/256 for W32); `_TimmFeatureWrapper` then upsamples
+            # branches 2-4 to stride 4 and concatenates, exactly as
+            # `HRNetW32Backbone.forward` does, for 480 channels @ stride 4.
+            # (The "Unexpected keys (... downsamp_modules, final_layer,
+            # classifier)" notice timm logs while loading pretrained weights is
+            # expected here: those are precisely the classification-head weights
+            # we are deliberately not using.)
             backbone = timm.create_model(
-                "hrnet_w32", pretrained=True, features_only=True, out_indices=(4,)
+                "hrnet_w32",
+                pretrained=True,
+                features_only=True,
+                feature_location="",
+                out_indices=(1, 2, 3, 4),
             )
-            out_channels = backbone.feature_info.channels()[-1]
+
+            reductions = backbone.feature_info.reduction()
+            if reductions[0] != HEATMAP_STRIDE:
+                raise RuntimeError(
+                    f"timm hrnet_w32 returned a highest-resolution feature map at stride "
+                    f"{reductions[0]}, but this model requires stride {HEATMAP_STRIDE} "
+                    f"(strides returned: {reductions}). Refusing to build a backbone whose "
+                    "output resolution silently disagrees with the heatmap targets."
+                )
+
+            out_channels = sum(backbone.feature_info.channels())
             if out_channels != HRNetW32Backbone.out_channels:
                 warnings.warn(
-                    f"timm hrnet_w32 gave {out_channels} channels but we expected {HRNetW32Backbone.out_channels}. "
-                    "shapes should be fine but double chek timm version",
+                    f"timm hrnet_w32 fused to {out_channels} channels but the self-contained "
+                    f"backbone defines {HRNetW32Backbone.out_channels}. The heads size themselves "
+                    "from whichever backbone loaded, so this runs — but the two paths are no "
+                    "longer interchangeable; check the installed timm version.",
                     stacklevel=2,
                 )
             return _TimmFeatureWrapper(backbone), out_channels
@@ -55,13 +91,27 @@ def build_backbone(source: str = "auto") -> tuple[nn.Module, int]:
 
 
 class _TimmFeatureWrapper(nn.Module):
-    # unwraps timm list output to just a singl tensor
+    """Fuses timm's four HRNet branch outputs into one stride-4 feature map.
+
+    Mirrors `HRNetW32Backbone.forward`'s final fuse exactly: branches 2-4 are
+    bilinearly upsampled to branch 1's (stride-4) resolution and concatenated
+    along the channel axis. Keeping both backbone paths on the same output
+    contract — 480 channels @ stride 4 — is what lets `backbone_source` be
+    switched between "timm" and "custom" without touching any head.
+    """
+
     def __init__(self, timm_backbone: nn.Module) -> None:
         super().__init__()
         self.timm_backbone = timm_backbone
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.timm_backbone(x)[-1]
+        branches = self.timm_backbone(x)
+        target_hw = branches[0].shape[-2:]
+        fused = [branches[0]] + [
+            F.interpolate(branch, size=target_hw, mode="bilinear", align_corners=False)
+            for branch in branches[1:]
+        ]
+        return torch.cat(fused, dim=1)
 
 
 class HeatmapHead(nn.Module):
