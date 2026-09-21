@@ -16,6 +16,14 @@ authored and carefully reviewed line-by-line against the spec, but `torch`
 was not installable in the sandbox this codebase was built in, so this loop
 has never actually been run. Run the smoke test
 (`pytest tests/test_smoke_dummy.py`) before trusting it on real data.
+
+RESUMING A CUT-OFF RUN: pass `--resume <run_dir>/checkpoints/last.pt`.
+`last.pt` (unlike `best.pt`) carries the optimizer/scaler state and the
+epoch/stage it was saved at, so resuming restarts training from the next
+epoch in that same stage with the same run directory (metrics.csv keeps
+appending to the original run rather than starting a new one) — not from
+epoch 0. `best.pt` cannot be used to resume (no optimizer/scaler state);
+it's only for loading final weights into the FastAPI backend.
 """
 
 from __future__ import annotations
@@ -124,8 +132,22 @@ def run_stage(
     run_dir: Path,
     csv_logger: MetricCSVLogger,
     device: str,
+    start_epoch: int = 0,
+    resume_optimizer_state: dict[str, Any] | None = None,
+    resume_scaler_state: dict[str, Any] | None = None,
 ) -> None:
-    """Runs one training stage (Stage 1: heatmap+L1 only; Stage 2: + ramped NLL)."""
+    """Runs one training stage (Stage 1: heatmap+L1 only; Stage 2: + ramped NLL).
+
+    Args:
+        start_epoch: first epoch index to run (0 for a fresh stage). When
+            resuming mid-stage, this is `checkpoint_epoch + 1`; when the
+            checkpoint belongs to a LATER stage than this one, the caller
+            passes `start_epoch >= n_epochs` so this stage is skipped
+            entirely (it already finished before the run was cut off).
+        resume_optimizer_state / resume_scaler_state: loaded into the
+            freshly-built optimizer/scaler when resuming THIS stage (None
+            for a fresh run, or when resuming into the other stage).
+    """
     loss_cfg = cfg["loss"]
     n_epochs = cfg["training"]["stage1_epochs"] if stage == 1 else cfg["training"]["stage2_epochs"]
     warmup_epochs = cfg["training"]["schedule"]["warmup_epochs"]
@@ -144,7 +166,23 @@ def run_stage(
     epochs_without_improvement = 0
     checkpoints_dir = run_dir / "checkpoints"
 
-    for epoch in range(n_epochs):
+    if start_epoch >= n_epochs:
+        logger.info("Stage %d already completed before resume point; skipping.", stage)
+        return
+
+    if resume_optimizer_state is not None:
+        optimizer.load_state_dict(resume_optimizer_state)
+    if resume_scaler_state is not None:
+        scaler.load_state_dict(resume_scaler_state)
+    if start_epoch > 0:
+        # Schedulers here are stateless-recreate-then-fast-forward: replaying
+        # `.step()` start_epoch times reproduces the LR the original run would
+        # have reached, without needing to separately save/load scheduler state.
+        for _ in range(start_epoch):
+            scheduler.step()
+        logger.info("Resuming stage %d at epoch %d/%d.", stage, start_epoch, n_epochs)
+
+    for epoch in range(start_epoch, n_epochs):
         model.train()
         epoch_start = time.time()
         lambda_nll = 0.0
@@ -290,6 +328,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--device", type=str, default=None, help="Overrides config's training.device.")
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Path to a 'last.pt' checkpoint (NOT 'best.pt' — it lacks optimizer/scaler "
+        "state) to continue a cut-off run from its next epoch, in its original run directory.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -301,15 +346,45 @@ def main() -> None:
         device = "cpu"
 
     seed_everything(cfg["seed"], cfg["deterministic_cudnn"])
-    run_dir = create_run_dir(cfg["paths"]["runs_dir"], cfg["experiment_name"], cfg)
+
+    resume_ckpt: dict[str, Any] | None = None
+    resume_stage: int | None = None
+    resume_epoch: int | None = None
+    if args.resume:
+        resume_path = Path(args.resume)
+        resume_ckpt = torch.load(resume_path, map_location="cpu")
+        if "optimizer" not in resume_ckpt:
+            raise SystemExit(
+                f"{resume_path} has no optimizer state — only 'last.pt' checkpoints can resume "
+                "training ('best.pt' is weights-only, for deployment). Point --resume at last.pt."
+            )
+        resume_stage = resume_ckpt["stage"]
+        resume_epoch = resume_ckpt["epoch"]
+        # Continue writing into the SAME run directory the checkpoint came from
+        # (<run_dir>/checkpoints/last.pt) so metrics.csv/config/plots stay one
+        # continuous record instead of fragmenting across a new run folder.
+        run_dir = resume_path.parent.parent
+        logger.info("Resuming from %s (stage=%d epoch=%d), run_dir=%s", resume_path, resume_stage, resume_epoch, run_dir)
+    else:
+        run_dir = create_run_dir(cfg["paths"]["runs_dir"], cfg["experiment_name"], cfg)
+        logger.info("Run directory: %s", run_dir)
+
     csv_logger = MetricCSVLogger(run_dir, cfg["logging"]["metric_csv_filename"])
-    logger.info("Run directory: %s", run_dir)
 
     train_loader, val_loader = build_dataloaders(cfg)
 
     model, optimizer = build_model_and_optimizer(cfg, stage=1)
+    if resume_ckpt is not None:
+        model.load_state_dict(resume_ckpt["model"])
     model.to(device)
-    run_stage(1, model, optimizer, train_loader, val_loader, cfg, run_dir, csv_logger, device)
+
+    stage1_start = resume_epoch + 1 if resume_stage == 1 else (cfg["training"]["stage1_epochs"] if resume_stage == 2 else 0)
+    run_stage(
+        1, model, optimizer, train_loader, val_loader, cfg, run_dir, csv_logger, device,
+        start_epoch=stage1_start,
+        resume_optimizer_state=resume_ckpt["optimizer"] if resume_stage == 1 else None,
+        resume_scaler_state=resume_ckpt["scaler"] if resume_stage == 1 else None,
+    )
 
     # Stage 2: fresh optimizer + cosine restart (Build Prompt v2 §8: "restart
     # the cosine schedule at the Stage 2 boundary; document this choice"),
@@ -328,7 +403,13 @@ def main() -> None:
         ],
         weight_decay=opt_cfg["weight_decay"],
     )
-    run_stage(2, model, optimizer, train_loader, val_loader, cfg, run_dir, csv_logger, device)
+    stage2_start = resume_epoch + 1 if resume_stage == 2 else 0
+    run_stage(
+        2, model, optimizer, train_loader, val_loader, cfg, run_dir, csv_logger, device,
+        start_epoch=stage2_start,
+        resume_optimizer_state=resume_ckpt["optimizer"] if resume_stage == 2 else None,
+        resume_scaler_state=resume_ckpt["scaler"] if resume_stage == 2 else None,
+    )
 
     logger.info("Training complete. Best checkpoint: %s", run_dir / "checkpoints" / "best.pt")
 
