@@ -90,6 +90,12 @@ def _validate_sample(sample: dict[str, Any], images_by_id: dict[str, dict[str, A
     if "specimen_id" not in sample:
         problems.append("missing specimen_id (required for grouped splitting — see training/splitting.py)")
 
+    if "id" not in sample:
+        problems.append(
+            "missing annotation id (required to disambiguate multiple fish sharing one image_id — "
+            "see BettaKeypointDataset._load_crop's cache key)"
+        )
+
     return problems
 
 
@@ -116,12 +122,17 @@ def load_and_validate_annotations(annotations_path: str | Path, images_dir: str 
 
     images_by_id = {str(img["id"]): img for img in coco["images"]}
 
-    seen_image_ids: set[str] = set()
+    # NOTE: multiple annotations CAN legitimately share one image_id -- an
+    # image with more than one fish in it (a catalog/comparison photo) has
+    # one annotation per fish, all pointing at the same image_id. What must
+    # never repeat is the ANNOTATION's own id (each fish's own record).
+    seen_annotation_ids: set[str] = set()
     for sample in coco["annotations"]:
         image_id = str(sample.get("image_id", ""))
-        if image_id in seen_image_ids:
-            raise AnnotationValidationError(f"duplicate image_id in annotations: {image_id!r}")
-        seen_image_ids.add(image_id)
+        annotation_id = str(sample.get("id", f"<missing id, image_id={image_id}>"))
+        if annotation_id in seen_annotation_ids:
+            raise AnnotationValidationError(f"duplicate annotation id: {annotation_id!r}")
+        seen_annotation_ids.add(annotation_id)
 
         problems = _validate_sample(sample, images_by_id, images_dir)
         if problems:
@@ -262,9 +273,14 @@ class BettaKeypointDataset(Dataset):
 
     def _load_crop(self, sample: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray, AffineTransform]:
         """Returns (crop_image_uint8_HWC, keypoints_crop, visibility_flags, affine_orig_to_crop)."""
-        image_id = str(sample["image_id"])
-        if self.cache_crops_in_ram and image_id in self._crop_cache:
-            return self._crop_cache[image_id]
+        # Cache key is the ANNOTATION's own id, not image_id: an image with
+        # multiple fish (multiple annotations sharing one image_id) has a
+        # different fish_box -- and therefore a different crop -- per
+        # annotation. Keying the cache by image_id would return fish #1's
+        # cached crop for fish #2 and #3 of the same photo, silently.
+        cache_key = str(sample["id"])
+        if self.cache_crops_in_ram and cache_key in self._crop_cache:
+            return self._crop_cache[cache_key]
 
         keypoints = np.array(sample["keypoints"], dtype=np.float64).reshape(NUM_KEYPOINTS, 3)
         xy, visibility = keypoints[:, :2], keypoints[:, 2].astype(np.int64)
@@ -302,7 +318,7 @@ class BettaKeypointDataset(Dataset):
         result = (np.array(canvas), keypoints_crop, visibility, full_affine)
 
         if self.cache_crops_in_ram:
-            self._crop_cache[image_id] = result
+            self._crop_cache[cache_key] = result
         return result
 
     def _image_meta(self, sample: dict[str, Any]) -> dict[str, Any]:

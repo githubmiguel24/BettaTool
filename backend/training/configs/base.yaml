@@ -11,7 +11,7 @@ deterministic_cudnn: true
 keypoints_config: training/configs/keypoints.yaml
 
 paths:
-  images_dir: data/raw/dataset
+  images_dir: data/raw
   annotations_dir: data/annotations
   splits_dir: data/splits
   runs_dir: training/runs
