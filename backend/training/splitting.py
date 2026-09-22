@@ -24,6 +24,51 @@ from pathlib import Path
 from typing import Any
 
 
+def _union_find_groups(samples: list[dict[str, Any]], group_key: str) -> dict[int, int]:
+    """Returns {sample_index: root_index}, merging two samples into the same
+    root whenever they share `group_key` (e.g. specimen_id) OR share
+    `image_id`.
+
+    The image_id union matters whenever one photo has more than one
+    annotation (multiple fish in frame): those annotations can have
+    different specimen_ids (they're different fish) but must still never be
+    split across partitions from each other, or the same background/
+    lighting/context leaks across train/val/test just as surely as a
+    repeated specimen would.
+    """
+    parent = list(range(len(samples)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i: int, j: int) -> None:
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    first_seen_by_group: dict[str, int] = {}
+    first_seen_by_image: dict[str, int] = {}
+    for i, sample in enumerate(samples):
+        if group_key not in sample:
+            raise ValueError(f"Sample {sample.get('image_id', '?')} is missing group_key '{group_key}'.")
+        gk = str(sample[group_key])
+        if gk in first_seen_by_group:
+            union(i, first_seen_by_group[gk])
+        else:
+            first_seen_by_group[gk] = i
+
+        img = str(sample["image_id"])
+        if img in first_seen_by_image:
+            union(i, first_seen_by_image[img])
+        else:
+            first_seen_by_image[img] = i
+
+    return {i: find(i) for i in range(len(samples))}
+
+
 def compute_grouped_stratified_split(
     samples: list[dict[str, Any]],
     group_key: str,
@@ -65,14 +110,15 @@ def compute_grouped_stratified_split(
     total_fraction = sum(split_fractions.values())
     normalized_fractions = {k: v / total_fraction for k, v in split_fractions.items()}
 
-    # 1. Group samples by group_key, and compute each group's stratum key
-    #    from its FIRST sample (all samples in a group are assumed to share
-    #    strata, e.g. the same fish has one color morph).
-    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for sample in samples:
-        if group_key not in sample:
-            raise ValueError(f"Sample {sample.get('image_id', '?')} is missing group_key '{group_key}'.")
-        groups[str(sample[group_key])].append(sample)
+    # 1. Group samples by group_key, merged with any other sample that
+    #    shares an image_id (multiple fish in one photo must stay together
+    #    too -- see _union_find_groups), and compute each group's stratum
+    #    key from its FIRST sample (all samples in a group are assumed to
+    #    share strata, e.g. the same fish has one color morph).
+    roots = _union_find_groups(samples, group_key)
+    groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for i, sample in enumerate(samples):
+        groups[roots[i]].append(sample)
 
     strata: dict[str, list[str]] = defaultdict(list)  # stratum_key -> [group_id, ...]
     for group_id, group_samples in groups.items():
@@ -113,16 +159,35 @@ def compute_grouped_stratified_split(
 
 
 def assert_no_group_leakage(partitions: dict[str, list[str]], samples: list[dict[str, Any]], group_key: str) -> None:
-    """Raises AssertionError if any group_key value appears in more than one partition."""
-    image_id_to_group = {str(s["image_id"]): str(s[group_key]) for s in samples}
-    group_to_partitions: dict[str, set[str]] = defaultdict(set)
+    """Raises AssertionError if any image_id, or any group_key value,
+    appears in more than one partition.
+
+    Checked in two passes rather than one image_id->group dict, because an
+    image with more than one annotation (multiple fish in frame) has more
+    than one group_key value for the same image_id -- collapsing that into
+    a single dict entry (keyed by image_id) would silently hide a real
+    same-image leak behind whichever annotation happened to be seen last.
+    """
+    image_id_to_partitions: dict[str, set[str]] = defaultdict(set)
     for partition_name, image_ids in partitions.items():
         for image_id in image_ids:
-            group_to_partitions[image_id_to_group[image_id]].add(partition_name)
+            image_id_to_partitions[image_id].add(partition_name)
 
-    leaked = {g: p for g, p in group_to_partitions.items() if len(p) > 1}
-    if leaked:
-        raise AssertionError(f"{group_key} values split across partitions (leakage): {leaked}")
+    leaked_images = {img: p for img, p in image_id_to_partitions.items() if len(p) > 1}
+    if leaked_images:
+        raise AssertionError(f"image_id values split across partitions (leakage): {leaked_images}")
+
+    image_id_to_partition = {img: next(iter(p)) for img, p in image_id_to_partitions.items()}
+    group_to_partitions: dict[str, set[str]] = defaultdict(set)
+    for sample in samples:
+        image_id = str(sample["image_id"])
+        partition = image_id_to_partition.get(image_id)
+        if partition is not None:
+            group_to_partitions[str(sample[group_key])].add(partition)
+
+    leaked_groups = {g: p for g, p in group_to_partitions.items() if len(p) > 1}
+    if leaked_groups:
+        raise AssertionError(f"{group_key} values split across partitions (leakage): {leaked_groups}")
 
 
 def write_splits(splits_dir: str | Path, partitions: dict[str, list[str]]) -> None:
