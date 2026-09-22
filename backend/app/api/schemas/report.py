@@ -1,4 +1,4 @@
-"""Response model for the full Reliability-Annotated Assessment Report."""
+# response model for the assesment report
 
 from datetime import datetime
 
@@ -16,16 +16,12 @@ class AssessmentReport(BaseModel):
     model_name: str = "HRNet-W32 (probabilistic heatmap)"
     measurements: list[MeasurementResult]
 
-    # --- Perceptual-tier output, in ORIGINAL uploaded-image pixels ---
+    # perceptual tier output in original image pixls
     keypoints: list[KeypointPrediction] = []
     image_width: int = 0
     image_height: int = 0
 
-    # --- Provenance / integrity ---
-    # `model_trained` is False when the perceptual tier is running randomly
-    # initialized weights because no checkpoint was found. The UI surfaces
-    # this as a blocking banner: every number below it is meaningless in
-    # that mode, and a screenshot of this report must never be presented as
-    # a result without the banner attached.
+    # provenance and integrty stuff
+    # if model_trained is false use random weights (no chkpoint). UI must show a blocking banner cause all numbers are basically garbage in that mode
     model_trained: bool = False
     warnings: list[str] = []

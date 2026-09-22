@@ -1,23 +1,4 @@
-"""POST /analyze - upload a lateral flare image, run the full pipeline, get a report.
-
-Wires all three tiers behind one endpoint:
-
-    upload bytes
-      -> decode + letterbox (app/perception/preprocess.py)
-      -> HRNet-W32 forward pass (app/perception/loader.py, cached)
-      -> soft-argmax + covariance + visibility (app/pipeline.py)
-      -> inverse letterbox back to original-image pixels
-      -> GUM propagation + TSI + IBC rule engine + abstention gate
-      -> AssessmentReport (persisted via app/core/db.py)
-
-IMPORTANT (integrity): when no trained checkpoint is present, this endpoint
-still answers 200 with a structurally complete report, but `model_trained`
-is False and `warnings` carries an explicit notice. That is deliberate - it
-lets the integration path be demonstrated and graded before training
-finishes - but it means a consumer MUST check `model_trained` before
-treating any number in the response as a measurement. The frontend renders a
-blocking red banner in that case.
-"""
+# main enpoint for image uplaod and running the full anlysis pipeline
 
 from __future__ import annotations
 
@@ -39,12 +20,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/analyze", tags=["analyze"])
 
-MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 MB
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # max 20 mb limit for upLoads
 
 
 @router.post("", response_model=AssessmentReport)
 async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
-    """Runs the perception -> analytical -> decisional pipeline on one image."""
+    # process the single imge through our decisional pipeline
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Uploaded file must be an image.")
 
@@ -71,7 +52,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
 
     try:
         output = pipeline.analyze_detailed(tensor, to_original=to_original)
-    except Exception as exc:  # noqa: BLE001 - surface as 500 with context, don't leak a bare traceback
+    except Exception as exc:  # noqa: BLE001 - return 500 error but dont leak tracback
         logger.exception("Pipeline failed on upload %s", file.filename)
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}") from exc
 
@@ -110,7 +91,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
 
 
 def _correlation(cov) -> float:
-    """rho = Sigma_xy / (sigma_x * sigma_y), clamped to [-1, 1]."""
+    # calc rho from covar and clmap to between -1 and 1
     denom = float(cov[0, 0] ** 0.5) * float(cov[1, 1] ** 0.5)
     if denom <= 0.0:
         return 0.0

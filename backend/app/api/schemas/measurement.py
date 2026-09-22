@@ -1,4 +1,4 @@
-"""Response model for a single IBC criterion result."""
+#Response model for a single IBC criterion result.
 
 from pydantic import BaseModel
 

@@ -1,4 +1,4 @@
-"""GET /reports, /reports/{id} — assessment history."""
+# get /reports, /reports/{id} - assesment History
 
 from __future__ import annotations
 

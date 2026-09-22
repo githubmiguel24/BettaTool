@@ -1,4 +1,5 @@
-"""GET /reports/{id}/export — PDF/CSV export of a saved report."""
+#GET /reports/{id}/export
+# export a saved Report to pdf or csv
 
 from __future__ import annotations
 
@@ -27,8 +28,7 @@ async def export_report(report_id: str, format: str = Query("csv", pattern="^(cs
     try:
         content = export_pdf(report)
     except NotImplementedError as exc:
-        # Fail as a clean, documented 501 rather than a 500 traceback - the
-        # frontend disables the PDF button on the strength of this contract.
+        # throw 501 instead of 500 crash so the frontnd disables the pdf button
         raise HTTPException(status_code=501, detail=str(exc)) from exc
     return Response(
         content=content,
