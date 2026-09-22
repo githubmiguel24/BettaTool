@@ -7,6 +7,30 @@ Build Prompt v2 §7:
 masked over keypoints with visibility 0 or -1, averaged over unmasked
 keypoints then over the batch. Sigma's closed-form 2x2 inverse is used
 instead of `torch.inverse` for speed and numerical control, per spec.
+
+TWO NUMERICAL SAFEGUARDS, both load-bearing under AMP (`training.amp: true`):
+
+1. MASK BEFORE SQUARING, not after. A masked keypoint (visibility 0/-1)
+   carries a meaningless target -- Roboflow writes unlabeled landmarks as
+   (0, 0) -- so its residual against a prediction near the crop centre is
+   ~270px. Squared through the Mahalanobis form with inv_cov up to
+   1/sigma_min^2 = 4, that is ~590,000, which OVERFLOWS fp16 (max 65,504)
+   to `inf`. Multiplying that by a 0.0 mask afterwards gives `inf * 0 =
+   NaN`, not 0 -- so keypoints that were supposed to contribute nothing
+   instead poison the whole batch, every batch, and the model is NaN within
+   one epoch. The residual is therefore zeroed with `torch.where` BEFORE it
+   is ever squared, and the per-keypoint NLL is zeroed the same way.
+
+2. COMPUTE IN FLOAT32. Even for visible keypoints, a large early-training
+   residual squared against a small predicted sigma can exceed fp16 range.
+   The whole loss is evaluated with autocast disabled and inputs upcast, so
+   dynamic range is never the failure mode. This costs almost nothing (the
+   loss is tiny next to the backbone) and the surrounding forward pass is
+   still fp16.
+
+Stage 1 does not exercise either path -- its localization term uses abs(),
+not a square -- which is exactly why a NaN here shows up only at the
+Stage 2 boundary, as soon as lambda_nll ramps above 0.
 """
 
 from __future__ import annotations
@@ -70,20 +94,40 @@ def gaussian_nll_loss(
         Scalar loss, averaged over visible keypoints then over the batch.
         Returns 0.0 (not NaN) for a batch where every keypoint is masked.
     """
-    inv_cov, det = closed_form_2x2_inverse(cov)
+    # Safeguard 2: evaluate in float32 regardless of the surrounding autocast
+    # context, so fp16's 65,504 ceiling is never the failure mode (see module
+    # docstring).
+    with torch.autocast(device_type=mu.device.type, enabled=False):
+        mu = mu.float()
+        cov = cov.float()
+        target = target.float()
+        visibility_mask = visibility_mask.float()
 
-    residual = (target - mu).unsqueeze(-1)  # (B, K, 2, 1)
-    mahalanobis_sq = (residual.transpose(-1, -2) @ inv_cov @ residual).squeeze(-1).squeeze(-1)  # (B, K)
+        visible = visibility_mask > 0  # (B, K) bool
 
-    log_det = torch.log(det.clamp_min(1e-12))
-    nll = 0.5 * log_det + 0.5 * mahalanobis_sq  # (B, K)
+        # Safeguard 1: zero the residual for masked keypoints BEFORE it is
+        # squared. Multiplying by the mask afterwards would compute inf * 0
+        # = NaN for exactly those keypoints (see module docstring).
+        residual = target - mu  # (B, K, 2)
+        residual = torch.where(visible.unsqueeze(-1), residual, torch.zeros_like(residual))
+        residual = residual.unsqueeze(-1)  # (B, K, 2, 1)
 
-    if beta > 0:
-        mean_eigenvalue = 0.5 * (cov[..., 0, 0] + cov[..., 1, 1])  # trace / 2, for a 2x2 matrix
-        weight = mean_eigenvalue.detach().clamp_min(1e-8) ** beta
-        nll = nll * weight
+        inv_cov, det = closed_form_2x2_inverse(cov)
+        mahalanobis_sq = (residual.transpose(-1, -2) @ inv_cov @ residual).squeeze(-1).squeeze(-1)  # (B, K)
 
-    masked = nll * visibility_mask
-    denom = visibility_mask.sum(dim=-1).clamp_min(1e-8)
-    per_sample = masked.sum(dim=-1) / denom
-    return per_sample.mean()
+        log_det = torch.log(det.clamp_min(1e-12))
+        nll = 0.5 * log_det + 0.5 * mahalanobis_sq  # (B, K)
+
+        if beta > 0:
+            mean_eigenvalue = 0.5 * (cov[..., 0, 0] + cov[..., 1, 1])  # trace / 2, for a 2x2 matrix
+            weight = mean_eigenvalue.detach().clamp_min(1e-8) ** beta
+            nll = nll * weight
+
+        # Zero (not multiply) the masked entries, for the same reason as the
+        # residual above: the log-det term is finite for a masked keypoint,
+        # but this keeps the mask semantics exact and total.
+        masked = torch.where(visible, nll, torch.zeros_like(nll))
+
+        denom = visibility_mask.sum(dim=-1).clamp_min(1e-8)
+        per_sample = masked.sum(dim=-1) / denom
+        return per_sample.mean()
