@@ -23,7 +23,7 @@ paths:
 # be hardcoded anywhere else — training/splitting.py reads whatever count
 # actually exists in the annotation file and applies these fractions.
 dataset:
-  expected_total_images: 1750
+  expected_total_images: 1647
   splits:
     train: 0.70
     val: 0.15
@@ -114,7 +114,7 @@ training:
     restart_at_stage2: true
   early_stopping:
     active_from_stage: 2
-    patience: 25
+    patience: 40
     metric: val_radial_error_px
   checkpoint:
     save_every_epoch: true
