@@ -65,13 +65,24 @@ def caudal_spread_angle(x: np.ndarray) -> float:
        exceed 180, so over-spread is representable and the function stays
        smoothly differentiable for GUM propagation across the whole decision
        boundary (verified: ||J|| ~= 1.146 deg/px and continuous at 180).
+
+    3. ORIENTATION-DEPENDENT SIGN. `upper - lower` is a SIGNED sum, so its
+       magnitude is correct but its sign depends on which way the fish
+       faces: a right-facing fish returned -180 where a left-facing one
+       returned +180. Since CAUDAL_SPREAD_ANGLE_BANDS in
+       app/decisional/ibc_standards.py has `FaultBand("Disqualify", None,
+       165.0)` as its open lower band, every right-facing specimen
+       disqualified no matter how good its tail. `abs()` is taken at the
+       end. This is safe for the Jacobian: abs() is non-differentiable only
+       at 0, and a real caudal spread lives near 180, so the kink is never
+       anywhere near the decision boundary or the data.
     """
     mid = _peduncle_mid(x)
     axis = _point(x, Keypoint.CAUDAL_FIN_CENTER) - mid  # the fin's mid-ray
 
     upper = _signed_angle_deg(axis, _point(x, Keypoint.CAUDAL_FIN_TIP_UPPER) - mid)
     lower = _signed_angle_deg(axis, _point(x, Keypoint.CAUDAL_FIN_TIP_LOWER) - mid)
-    return float(upper - lower)
+    return abs(float(upper - lower))
 
 
 def _body_length(x: np.ndarray) -> float:
@@ -111,18 +122,27 @@ def _anal_length(x: np.ndarray) -> float:
 
 
 def _caudal_length(x: np.ndarray) -> float:
-    """Span of the caudal fin: upper tip -> lower tip.
+    """Caudal peduncle midpoint -> CAUDAL_FIN_CENTER.
 
-    This is the tip-to-tip extent of the spread tail, i.e. the diameter of
-    the half-disc a Halfmoon forms. Earlier versions measured peduncle ->
-    CAUDAL_FIN_CENTER (the fin's front-to-back depth), which is a different
-    quantity: for an ideal Halfmoon the span is twice that depth, and the
-    two diverge as the spread departs from 180 degrees.
+    IBC 2025 Exhibition Standards Book 1, Ch. 5 "DIMENSION", Caudal Fin:
+    the caudal "should be at least one half of the length of the body as
+    measured from the caudal peduncle to the center of the outer edge -
+    NOT to the edge of the greatest extension."
 
-    CAUDAL_FIN_CENTER is still used, as the reference axis in
-    `caudal_spread_angle`.
+    That last clause is the whole reason this is not the tip-to-tip span.
+    A brief version of this module measured
+    CAUDAL_FIN_TIP_UPPER -> CAUDAL_FIN_TIP_LOWER, which is exactly the
+    "greatest extension" the standard rules out: it rewards a tail that is
+    merely WIDE over one that is LONG, and for an ideal 180-degree Halfmoon
+    it reads about twice the standard's value, so every fish would clear a
+    0.50 threshold trivially.
+
+    Note the asymmetry with `_dorsal_length` / `_anal_length`, which DO run
+    base-midpoint -> tip. That is not an inconsistency in this module; the
+    standard defines the three fins differently, and each function follows
+    its own clause.
     """
-    return _distance(x, Keypoint.CAUDAL_FIN_TIP_UPPER, Keypoint.CAUDAL_FIN_TIP_LOWER)
+    return float(np.linalg.norm(_point(x, Keypoint.CAUDAL_FIN_CENTER) - _peduncle_mid(x)))
 
 
 def dorsal_body_ratio(x: np.ndarray) -> float:
