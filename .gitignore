@@ -12,3 +12,21 @@ backend/data/raw_dummy/
 Thumbs.db
 .vscode/
 .idea/
+
+# Virtual Environments
+venv/
+.venv/
+ENV/
+env/
+
+# Python Cache & Compiled Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node.js Dependencies
+node_modules/
+
+# Environment Variables
+.env
