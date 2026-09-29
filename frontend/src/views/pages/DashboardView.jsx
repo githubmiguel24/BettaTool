@@ -1,8 +1,10 @@
-import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import ConfirmDialog from "../../components/ConfirmDialog.jsx";
+import SelectionBar from "../../components/SelectionBar.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { listReports, summarize } from "../../api/reports.js";
+import { summarize } from "../../api/reports.js";
+import { deleteMessage, useReportList } from "../../lib/useReportList.js";
 import { formatDate } from "../../lib/format.js";
 import {
   UserIcon,
@@ -22,35 +24,37 @@ const toneClasses = {
   red: "bg-red-100 text-red-600",
 };
 
-const statusClasses = {
-  Pass: { dot: "bg-emerald-500", text: "text-emerald-600" },
-  Defer: { dot: "bg-amber-500", text: "text-amber-600" },
-  Fault: { dot: "bg-red-500", text: "text-red-600" },
-};
-
 function DashboardView() {
   const navigate = useNavigate();
   const { displayName, email, signOut } = useAuth();
-  const [reports, setReports] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    listReports().then(setReports).catch((e) => setError(e.message));
-  }, []);
+  const {
+    reports,
+    error,
+    selected,
+    toggle,
+    toggleAll,
+    pending,
+    deleting,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
+  } = useReportList();
 
   async function handleSignOut() {
     await signOut();
     navigate("/");
   }
 
+  // Pass/Defer/Fault count individual measurements (6 per image), not images.
   const counts = summarize(reports ?? []);
   const stats = [
-    { label: "Total Analyses", value: counts.total, icon: ChartIcon, tone: "sky" },
-    { label: "Pass", value: counts.Pass, icon: CheckIcon, tone: "emerald" },
-    { label: "Defer", value: counts.Defer, icon: WarningIcon, tone: "amber" },
-    { label: "Fault", value: counts.Fault, icon: AlertCircleIcon, tone: "red" },
+    { label: "Total Analyses", note: "images", value: counts.total, icon: ChartIcon, tone: "sky" },
+    { label: "Pass", note: "measurements", value: counts.Pass, icon: CheckIcon, tone: "emerald" },
+    { label: "Defer", note: "measurements", value: counts.Defer, icon: WarningIcon, tone: "amber" },
+    { label: "Fault", note: "measurements", value: counts.Fault, icon: AlertCircleIcon, tone: "red" },
   ];
   const recentAnalyses = (reports ?? []).slice(0, 3);
+  const recentIds = recentAnalyses.map((r) => r.id);
 
   return (
     <DashboardLayout
@@ -88,7 +92,7 @@ function DashboardView() {
         </div>
 
         <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
-          {stats.map(({ label, value, icon: Icon, tone }) => (
+          {stats.map(({ label, note, value, icon: Icon, tone }) => (
             <div
               key={label}
               className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100"
@@ -100,6 +104,7 @@ function DashboardView() {
               </div>
               <p className="text-3xl font-bold text-slate-800">{value}</p>
               <p className="text-base text-slate-400">{label}</p>
+              <p className="text-sm text-slate-300">{note}</p>
             </div>
           ))}
         </div>
@@ -126,15 +131,29 @@ function DashboardView() {
               No analyses yet. Upload a photo to get started.
             </p>
           )}
+          {recentAnalyses.length > 0 && (
+            <SelectionBar
+              visibleIds={recentIds}
+              selected={selected}
+              onToggleAll={toggleAll}
+              onDelete={() =>
+                requestDelete(recentIds.filter((id) => selected.has(id)))
+              }
+            />
+          )}
           <div className="divide-y divide-slate-100">
-            {recentAnalyses.map(({ id, imageId, analysisDate, status }) => (
+            {recentAnalyses.map(({ id, imageId, analysisDate }) => (
               <div
                 key={id}
                 className="flex flex-wrap items-center justify-between gap-3 py-4"
               >
                 <div className="flex items-center gap-3">
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${statusClasses[status].dot}`}
+                  <input
+                    type="checkbox"
+                    checked={selected.has(id)}
+                    onChange={() => toggle(id)}
+                    aria-label={`Select ${imageId}`}
+                    className="h-5 w-5 rounded border-slate-300 accent-betta-600"
                   />
                   <span className="text-base font-medium text-slate-700">
                     {imageId}
@@ -145,23 +164,34 @@ function DashboardView() {
                     <ClockIcon className="h-5 w-5" />
                     {formatDate(analysisDate)}
                   </span>
-                  <span
-                    className={`text-base font-medium ${statusClasses[status].text}`}
-                  >
-                    {status}
-                  </span>
                   <Link
                     to={`/report/${id}`}
                     className="text-base font-medium text-betta-600 transition hover:text-betta-700"
                   >
                     view
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => requestDelete([id])}
+                    className="text-base font-medium text-red-500 transition hover:text-red-600"
+                  >
+                    delete
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending?.length === 1 ? "Delete this analysis?" : `Delete ${pending?.length} analyses?`}
+        message={deleteMessage(pending?.length ?? 0)}
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
     </DashboardLayout>
   );
 }

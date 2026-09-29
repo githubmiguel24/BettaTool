@@ -1,24 +1,27 @@
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import ConfirmDialog from "../../components/ConfirmDialog.jsx";
+import SelectionBar from "../../components/SelectionBar.jsx";
 import bettaPhoto from "../../assets/betta-hero.png";
-import { PlusIcon } from "../../components/Icons.jsx";
-import { listReports } from "../../api/reports.js";
+import { PlusIcon, TrashIcon } from "../../components/Icons.jsx";
+import { deleteMessage, useReportList } from "../../lib/useReportList.js";
 import { formatDate } from "../../lib/format.js";
 
-const statusClasses = {
-  Pass: "text-emerald-600",
-  Defer: "text-amber-600",
-  Fault: "text-red-600",
-};
-
 function HistoryView() {
-  const [history, setHistory] = useState(null);
-  const [error, setError] = useState(null);
+  const {
+    reports: history,
+    error,
+    selected,
+    toggle,
+    toggleAll,
+    pending,
+    deleting,
+    requestDelete,
+    cancelDelete,
+    confirmDelete,
+  } = useReportList();
 
-  useEffect(() => {
-    listReports().then(setHistory).catch((e) => setError(e.message));
-  }, []);
+  const ids = history?.map((r) => r.id) ?? [];
 
   return (
     <DashboardLayout
@@ -46,32 +49,66 @@ function HistoryView() {
         </p>
       )}
 
+      {history?.length > 0 && (
+        <SelectionBar
+          visibleIds={ids}
+          selected={selected}
+          onToggleAll={toggleAll}
+          onDelete={() => requestDelete(ids.filter((id) => selected.has(id)))}
+        />
+      )}
+
       <div className="grid gap-5 sm:grid-cols-2">
-        {history?.map(({ id, imageId, analysisDate, status, thumbnailUrl }) => (
-          <Link
+        {history?.map(({ id, imageId, analysisDate, thumbnailUrl }) => (
+          <div
             key={id}
-            to={`/report/${id}`}
-            className="flex items-center gap-5 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-100 transition hover:-translate-y-0.5 hover:shadow-md"
+            className={`flex items-center gap-4 rounded-2xl bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
+              selected.has(id) ? "ring-2 ring-betta-400" : "ring-1 ring-slate-100"
+            }`}
           >
-            <img
-              src={thumbnailUrl ?? bettaPhoto}
-              alt={imageId}
-              className="h-24 w-24 shrink-0 rounded-xl object-cover"
+            <input
+              type="checkbox"
+              checked={selected.has(id)}
+              onChange={() => toggle(id)}
+              aria-label={`Select ${imageId}`}
+              className="h-5 w-5 shrink-0 rounded border-slate-300 accent-betta-600"
             />
-            <div className="min-w-0">
-              <p className="truncate text-lg font-semibold text-slate-800">
-                {imageId}
-              </p>
-              <p className="mt-1.5 text-base text-slate-400">
-                {formatDate(analysisDate)} ·{" "}
-                <span className={`font-medium ${statusClasses[status]}`}>
-                  {status}
-                </span>
-              </p>
-            </div>
-          </Link>
+            <Link to={`/report/${id}`} className="flex min-w-0 flex-1 items-center gap-5">
+              <img
+                src={thumbnailUrl ?? bettaPhoto}
+                alt={imageId}
+                className="h-24 w-24 shrink-0 rounded-xl object-cover"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold text-slate-800">
+                  {imageId}
+                </p>
+                <p className="mt-1.5 text-base text-slate-400">
+                  {formatDate(analysisDate)}
+                </p>
+              </div>
+            </Link>
+            <button
+              type="button"
+              onClick={() => requestDelete([id])}
+              aria-label={`Delete ${imageId}`}
+              title="Delete"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+            >
+              <TrashIcon className="h-5 w-5" />
+            </button>
+          </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending?.length === 1 ? "Delete this analysis?" : `Delete ${pending?.length} analyses?`}
+        message={deleteMessage(pending?.length ?? 0)}
+        busy={deleting}
+        onConfirm={confirmDelete}
+        onCancel={cancelDelete}
+      />
     </DashboardLayout>
   );
 }

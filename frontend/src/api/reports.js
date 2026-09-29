@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase.js";
-import { overallStatus } from "../lib/format.js";
+import { decisionKind } from "../lib/format.js";
 
 const BUCKET = "betta-images";
 
@@ -90,7 +90,7 @@ async function signedUrlMap(paths) {
   return Object.fromEntries(data.map((d) => [d.path, d.signedUrl]));
 }
 
-/** Newest first. Each item carries its overall Pass/Defer/Fault status. */
+/** Newest first. Each item carries its per-measurement Pass/Defer/Fault counts. */
 export async function listReports() {
   const { data, error } = await supabase
     .from("reports")
@@ -99,24 +99,56 @@ export async function listReports() {
   fail(error);
 
   const urls = await signedUrlMap(data.map((r) => r.image_path));
-  return data.map((r) => ({
-    id: r.id,
-    imageId: r.image_id,
-    analysisDate: r.analysis_date,
-    modelTrained: r.model_trained,
-    status: overallStatus(r.measurements.map((m) => m.decision)),
-    thumbnailUrl: urls[r.image_path] ?? null,
-  }));
+  return data.map((r) => {
+    const counts = { Pass: 0, Defer: 0, Fault: 0 };
+    for (const m of r.measurements) counts[decisionKind(m.decision)] += 1;
+    return {
+      id: r.id,
+      imageId: r.image_id,
+      analysisDate: r.analysis_date,
+      modelTrained: r.model_trained,
+      counts,
+      thumbnailUrl: urls[r.image_path] ?? null,
+    };
+  });
 }
 
+/** Totals across every image: one count per measurement, not per report. */
 export function summarize(reports) {
-  const count = (s) => reports.filter((r) => r.status === s).length;
-  return {
-    total: reports.length,
-    Pass: count("Pass"),
-    Defer: count("Defer"),
-    Fault: count("Fault"),
-  };
+  const totals = { total: reports.length, Pass: 0, Defer: 0, Fault: 0 };
+  for (const { counts } of reports) {
+    totals.Pass += counts.Pass;
+    totals.Defer += counts.Defer;
+    totals.Fault += counts.Fault;
+  }
+  return totals;
+}
+
+/**
+ * Deletes reports and their stored images. Measurements, keypoints and
+ * warnings go with them via ON DELETE CASCADE. Throws if the database removed
+ * fewer rows than asked (e.g. a missing row-level-security delete policy).
+ */
+export async function deleteReports(ids) {
+  if (!ids.length) return;
+  const { data, error } = await supabase
+    .from("reports")
+    .delete()
+    .in("id", ids)
+    .select("id, image_path");
+  fail(error);
+
+  const paths = data.map((r) => r.image_path).filter(Boolean);
+  if (paths.length) {
+    const removed = await supabase.storage.from(BUCKET).remove(paths);
+    if (removed.error) console.warn("Image cleanup failed:", removed.error.message);
+  }
+
+  if (data.length < ids.length) {
+    throw new Error(
+      `Only ${data.length} of ${ids.length} analyses could be deleted. Check the delete policy on the reports table.`,
+    );
+  }
 }
 
 /** Returns a report shaped like the backend's AssessmentReport, plus imageUrl. */
