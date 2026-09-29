@@ -30,3 +30,6 @@ node_modules/
 
 # Environment Variables
 .env
+# Local env files (Supabase keys) - .env.example stays committed
+frontend/.env
+frontend/.env.local

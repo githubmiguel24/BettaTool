@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext.jsx";
 import bettaLogo from "../../assets/betta-tool-cutout.png";
 
 function BoltIcon(props) {
@@ -71,6 +72,9 @@ const features = [
 ];
 
 function HomeView() {
+  const { user } = useAuth();
+  const entryPath = user ? "/dashboard" : "/login";
+
   return (
     <div className="min-h-screen bg-white font-sans">
       {/* Navbar */}
@@ -87,10 +91,10 @@ function HomeView() {
             </span>
           </div>
           <Link
-            to="/login"
+            to={entryPath}
             className="rounded-full border-2 border-betta-950/15 px-7 py-3 text-base font-semibold text-betta-950 transition hover:border-betta-950/30 hover:bg-betta-950/5"
           >
-            Login
+            {user ? "Dashboard" : "Login"}
           </Link>
         </div>
       </header>
@@ -118,7 +122,7 @@ function HomeView() {
 
             <div className="mt-10 flex flex-col items-center gap-5 sm:flex-row">
               <Link
-                to="/login"
+                to={entryPath}
                 className="rounded-full bg-gradient-to-r from-betta-500 to-betta-600 px-10 py-4 text-base font-semibold text-white shadow-glow transition hover:scale-105 hover:shadow-xl"
               >
                 Get Started

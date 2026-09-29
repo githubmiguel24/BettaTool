@@ -1,25 +1,20 @@
 /**
- * Draws the perceptual tier's output over the uploaded image.
+ * SVG layers for the perceptual tier's output, drawn in ORIGINAL image pixels.
+ * Rendered inside AnnotatedImage's <svg>, which owns the viewBox (and thus
+ * zoom), so this component does no scaling math of its own. `unit` is the
+ * current viewBox size / 400, keeping markers a constant on-screen size.
  *
- * Coordinates arrive from the API in ORIGINAL uploaded-image pixels, so the
- * SVG simply declares a viewBox of the original image dimensions and lets
- * the browser handle scaling. No manual letterbox math on this side - that
- * belongs in app/perception/geometry.py and nowhere else.
- *
- * Each landmark is drawn as a dot plus its 1-sigma uncertainty ellipse, so
- * the covariance head's output is visible rather than buried in the JSON.
- * That ellipse is the whole point of the probabilistic tier: a confident
- * landmark shows a tight dot, an uncertain one visibly blooms.
+ * Each landmark is a dot plus its 1-sigma uncertainty ellipse, so the
+ * covariance head's output is visible rather than buried in the JSON. The
+ * optional heatmap draws a warm blob per landmark whose radius follows that
+ * same sigma: a confident landmark is a tight hot spot, an uncertain one blooms.
  *
  * Dots are colored by the API's `group` field (head / dorsal / caudal / anal
- * fin) so the anatomical part a landmark belongs to is visible at a glance,
- * not just its low-visibility state.
+ * fin).
  *
- * `highlightIndices`, when set (even to an empty array), switches the overlay
- * into "spotlight" mode for a selected measurement: every skeleton edge, dot,
- * and ellipse outside the set is hidden entirely - not just dimmed - so only
- * the landmarks that measurement actually reads remain, each with a soft glow
- * halo behind it (a small heatmap-like hot spot rather than a flat marker).
+ * `highlightIndices`, when set (even to an empty array), switches into
+ * "spotlight" mode for a selected measurement: everything outside the set is
+ * hidden entirely, and each remaining landmark gets a soft glow halo.
  */
 
 import { colorForGroup } from "../data/keypointGroups.js";
@@ -49,30 +44,26 @@ function ellipseParams(sigmaX, sigmaY, rho) {
   return { rx: Math.sqrt(l1), ry: Math.sqrt(l2), angle };
 }
 
-function KeypointOverlay({
-  report,
+function KeypointLayers({
+  keypoints,
+  unit,
+  idPrefix,
+  showKeypoints = true,
+  showHeatmap = false,
   showEllipses = true,
-  showSkeleton = true,
+  showSkeleton = false,
   highlightIndices = null,
 }) {
-  if (!report?.keypoints?.length) return null;
-
-  const { keypoints, image_width: w, image_height: h } = report;
-  // Stroke widths must scale with the image or they vanish on a 4000px photo.
-  const unit = Math.max(w, h) / 400;
-
   const spotlight = Array.isArray(highlightIndices);
   const isLit = (i) => !spotlight || highlightIndices.includes(i);
+  const glowId = `${idPrefix}-glow`;
+  const heatId = `${idPrefix}-heat`;
 
   return (
-    <svg
-      viewBox={`0 0 ${w} ${h}`}
-      className="pointer-events-none absolute inset-0 h-full w-full"
-      preserveAspectRatio="xMidYMid meet"
-    >
-      {spotlight && (
-        <defs>
-          <filter id="kp-glow" x="-200%" y="-200%" width="500%" height="500%">
+    <g>
+      <defs>
+        {spotlight && showKeypoints && (
+          <filter id={glowId} x="-200%" y="-200%" width="500%" height="500%">
             <feGaussianBlur stdDeviation={unit * 1.4} result="blur" />
             <feMerge>
               <feMergeNode in="blur" />
@@ -80,10 +71,37 @@ function KeypointOverlay({
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
-        </defs>
-      )}
+        )}
+        {showHeatmap && (
+          <radialGradient id={heatId}>
+            <stop offset="0%" stopColor="#ff3b00" stopOpacity="0.85" />
+            <stop offset="35%" stopColor="#ffb300" stopOpacity="0.55" />
+            <stop offset="70%" stopColor="#ffeb3b" stopOpacity="0.2" />
+            <stop offset="100%" stopColor="#ffeb3b" stopOpacity="0" />
+          </radialGradient>
+        )}
+      </defs>
 
-      {showSkeleton &&
+      {showHeatmap &&
+        keypoints.map((kp) => {
+          if (!isLit(kp.index)) return null;
+          const radius = Math.min(
+            Math.max(Math.max(kp.sigma_x, kp.sigma_y) * 3, unit * 6),
+            unit * 22,
+          );
+          return (
+            <circle
+              key={`h-${kp.index}`}
+              cx={kp.x}
+              cy={kp.y}
+              r={radius}
+              fill={`url(#${heatId})`}
+              opacity={kp.low_visibility ? 0.45 : 1}
+            />
+          );
+        })}
+
+      {showKeypoints && showSkeleton &&
         SKELETON_EDGES.map(([a, b]) => {
           const p = keypoints[a];
           const q = keypoints[b];
@@ -106,9 +124,9 @@ function KeypointOverlay({
           );
         })}
 
-      {showEllipses &&
+      {showKeypoints && showEllipses &&
         keypoints.map((kp) => {
-          if (spotlight && !isLit(kp.index)) return null;
+          if (!isLit(kp.index)) return null;
           const { rx, ry, angle } = ellipseParams(kp.sigma_x, kp.sigma_y, kp.rho);
           return (
             <ellipse
@@ -127,34 +145,35 @@ function KeypointOverlay({
           );
         })}
 
-      {keypoints.map((kp) => {
-        if (spotlight && !isLit(kp.index)) return null;
-        const color = kp.low_visibility ? "#94a3b8" : colorForGroup(kp.group);
-        return (
-          <g key={`p-${kp.index}`}>
-            {spotlight && (
+      {showKeypoints &&
+        keypoints.map((kp) => {
+          if (!isLit(kp.index)) return null;
+          const color = kp.low_visibility ? "#94a3b8" : colorForGroup(kp.group);
+          return (
+            <g key={`p-${kp.index}`}>
+              {spotlight && (
+                <circle
+                  cx={kp.x}
+                  cy={kp.y}
+                  r={unit * 3.2}
+                  fill={color}
+                  fillOpacity={0.45}
+                  filter={`url(#${glowId})`}
+                />
+              )}
               <circle
                 cx={kp.x}
                 cy={kp.y}
-                r={unit * 3.2}
+                r={spotlight ? unit * 2.3 : unit * 1.7}
                 fill={color}
-                fillOpacity={0.45}
-                filter="url(#kp-glow)"
+                stroke="#ffffff"
+                strokeWidth={unit * 0.6}
               />
-            )}
-            <circle
-              cx={kp.x}
-              cy={kp.y}
-              r={spotlight ? unit * 2.3 : unit * 1.7}
-              fill={color}
-              stroke="#ffffff"
-              strokeWidth={unit * 0.6}
-            />
-          </g>
-        );
-      })}
-    </svg>
+            </g>
+          );
+        })}
+    </g>
   );
 }
 
-export default KeypointOverlay;
+export default KeypointLayers;
