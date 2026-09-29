@@ -1,12 +1,29 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import AuthLayout from "../../components/AuthLayout.jsx";
 import { TextField, PasswordField } from "../../components/AuthInputs.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 function LoginView() {
   const navigate = useNavigate();
+  const { user, signIn } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e) {
+  if (user) return <Navigate to="/dashboard" replace />;
+
+  async function handleSubmit(e) {
     e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    const { error: authError } = await signIn(email, password);
+    setSubmitting(false);
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
     navigate("/dashboard");
   }
 
@@ -25,11 +42,18 @@ function LoginView() {
           type="email"
           placeholder="you@email.com"
           autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           required
         />
 
         <div>
-          <PasswordField autoComplete="current-password" required />
+          <PasswordField
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
           <div className="mt-2 text-right">
             <a
               href="#"
@@ -40,11 +64,18 @@ function LoginView() {
           </div>
         </div>
 
+        {error && (
+          <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
         <button
           type="submit"
-          className="w-full rounded-full bg-gradient-to-r from-betta-500 to-betta-600 py-3.5 text-base font-semibold text-white shadow-glow transition hover:opacity-90"
+          disabled={submitting}
+          className="w-full rounded-full bg-gradient-to-r from-betta-500 to-betta-600 py-3.5 text-base font-semibold text-white shadow-glow transition hover:opacity-90 disabled:opacity-60"
         >
-          Sign in
+          {submitting ? "Signing in…" : "Sign in"}
         </button>
       </form>
 

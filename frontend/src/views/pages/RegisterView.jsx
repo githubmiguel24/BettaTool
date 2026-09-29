@@ -1,13 +1,45 @@
-import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import AuthLayout from "../../components/AuthLayout.jsx";
 import { TextField, PasswordField } from "../../components/AuthInputs.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
 
 function RegisterView() {
   const navigate = useNavigate();
+  const { user, signUp } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e) {
+  if (user) return <Navigate to="/dashboard" replace />;
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    navigate("/dashboard");
+    setError(null);
+    setNotice(null);
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    if (password !== confirm) {
+      setError("Passwords do not match.");
+      return;
+    }
+
+    setSubmitting(true);
+    const { data, error: authError } = await signUp(fullName, email, password);
+    setSubmitting(false);
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+    // With email confirmation enabled in Supabase there is no session yet.
+    if (data.session) navigate("/dashboard");
+    else setNotice("Account created. Check your email to confirm it, then sign in.");
   }
 
   return (
@@ -23,6 +55,8 @@ function RegisterView() {
           type="text"
           placeholder="Your name"
           autoComplete="name"
+          value={fullName}
+          onChange={(e) => setFullName(e.target.value)}
           required
         />
         <TextField
@@ -30,16 +64,41 @@ function RegisterView() {
           type="email"
           placeholder="you@email.com"
           autoComplete="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           required
         />
-        <PasswordField autoComplete="new-password" required />
-        <PasswordField label="Confirm Password" autoComplete="new-password" required />
+        <PasswordField
+          autoComplete="new-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        <PasswordField
+          label="Confirm Password"
+          autoComplete="new-password"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          required
+        />
+
+        {error && (
+          <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+        {notice && (
+          <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            {notice}
+          </p>
+        )}
 
         <button
           type="submit"
-          className="w-full rounded-full bg-gradient-to-r from-betta-500 to-betta-600 py-3.5 text-base font-semibold text-white shadow-glow transition hover:opacity-90"
+          disabled={submitting}
+          className="w-full rounded-full bg-gradient-to-r from-betta-500 to-betta-600 py-3.5 text-base font-semibold text-white shadow-glow transition hover:opacity-90 disabled:opacity-60"
         >
-          Create Account
+          {submitting ? "Creating account…" : "Create Account"}
         </button>
       </form>
 

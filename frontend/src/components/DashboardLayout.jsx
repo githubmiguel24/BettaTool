@@ -1,4 +1,5 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext.jsx";
 import bettaLogo from "../assets/betta-tool-cutout.png";
 import { UserIcon, UploadIcon, ClockIcon, LogoutIcon } from "./Icons.jsx";
 
@@ -14,6 +15,13 @@ function DashboardLayout({
   children,
 }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { displayName, email, signOut } = useAuth();
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/");
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-100">
@@ -56,20 +64,19 @@ function DashboardLayout({
             </div>
             <div className="min-w-0">
               <p className="truncate text-base font-semibold text-betta-950">
-                Lebron James
+                {displayName}
               </p>
-              <p className="truncate text-sm text-betta-900/60">
-                goat@email.com
-              </p>
+              <p className="truncate text-sm text-betta-900/60">{email}</p>
             </div>
           </div>
-          <Link
-            to="/"
-            className="mt-2 flex items-center gap-3.5 rounded-xl px-4 py-3 text-base font-medium text-betta-900/70 transition hover:bg-betta-950/5 hover:text-betta-950"
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="mt-2 flex w-full items-center gap-3.5 rounded-xl px-4 py-3 text-base font-medium text-betta-900/70 transition hover:bg-betta-950/5 hover:text-betta-950"
           >
             <LogoutIcon className="h-5 w-5" />
             Sign out
-          </Link>
+          </button>
         </div>
       </aside>
 

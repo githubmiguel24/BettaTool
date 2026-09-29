@@ -1,5 +1,9 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { listReports, summarize } from "../../api/reports.js";
+import { formatDate } from "../../lib/format.js";
 import {
   UserIcon,
   PlusIcon,
@@ -11,25 +15,12 @@ import {
   AlertCircleIcon,
 } from "../../components/Icons.jsx";
 
-const stats = [
-  { label: "Total Analyses", value: 48, icon: ChartIcon, tone: "sky" },
-  { label: "Pass", value: 31, icon: CheckIcon, tone: "emerald" },
-  { label: "Defer", value: 12, icon: WarningIcon, tone: "amber" },
-  { label: "Fault", value: 5, icon: AlertCircleIcon, tone: "red" },
-];
-
 const toneClasses = {
   sky: "bg-sky-100 text-sky-600",
   emerald: "bg-emerald-100 text-emerald-600",
   amber: "bg-amber-100 text-amber-600",
   red: "bg-red-100 text-red-600",
 };
-
-const recentAnalyses = [
-  { id: "IMG_2026_0001", date: "May 30, 2026", status: "Pass" },
-  { id: "IMG_2026_0002", date: "May 30, 2026", status: "Defer" },
-  { id: "IMG_2026_0003", date: "May 30, 2026", status: "Fault" },
-];
 
 const statusClasses = {
   Pass: { dot: "bg-emerald-500", text: "text-emerald-600" },
@@ -38,6 +29,29 @@ const statusClasses = {
 };
 
 function DashboardView() {
+  const navigate = useNavigate();
+  const { displayName, email, signOut } = useAuth();
+  const [reports, setReports] = useState(null);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    listReports().then(setReports).catch((e) => setError(e.message));
+  }, []);
+
+  async function handleSignOut() {
+    await signOut();
+    navigate("/");
+  }
+
+  const counts = summarize(reports ?? []);
+  const stats = [
+    { label: "Total Analyses", value: counts.total, icon: ChartIcon, tone: "sky" },
+    { label: "Pass", value: counts.Pass, icon: CheckIcon, tone: "emerald" },
+    { label: "Defer", value: counts.Defer, icon: WarningIcon, tone: "amber" },
+    { label: "Fault", value: counts.Fault, icon: AlertCircleIcon, tone: "red" },
+  ];
+  const recentAnalyses = (reports ?? []).slice(0, 3);
+
   return (
     <DashboardLayout
       actions={
@@ -58,18 +72,19 @@ function DashboardView() {
             </div>
             <div>
               <p className="text-lg font-semibold text-slate-800">
-                Lebron James
+                {displayName}
               </p>
-              <p className="text-base text-slate-400">goat@email.com</p>
+              <p className="text-base text-slate-400">{email}</p>
             </div>
           </div>
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={handleSignOut}
             className="flex items-center gap-2 text-base text-slate-400 transition hover:text-slate-600"
           >
             Sign out
             <ArrowRightIcon className="h-5 w-5" />
-          </Link>
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-5 lg:grid-cols-4">
@@ -101,8 +116,18 @@ function DashboardView() {
               view all »
             </Link>
           </div>
+          {error && (
+            <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+          {reports && recentAnalyses.length === 0 && (
+            <p className="py-4 text-base text-slate-400">
+              No analyses yet. Upload a photo to get started.
+            </p>
+          )}
           <div className="divide-y divide-slate-100">
-            {recentAnalyses.map(({ id, date, status }) => (
+            {recentAnalyses.map(({ id, imageId, analysisDate, status }) => (
               <div
                 key={id}
                 className="flex flex-wrap items-center justify-between gap-3 py-4"
@@ -112,13 +137,13 @@ function DashboardView() {
                     className={`h-2.5 w-2.5 rounded-full ${statusClasses[status].dot}`}
                   />
                   <span className="text-base font-medium text-slate-700">
-                    {id}
+                    {imageId}
                   </span>
                 </div>
                 <div className="flex items-center gap-7">
                   <span className="flex items-center gap-2 text-base text-slate-400">
                     <ClockIcon className="h-5 w-5" />
-                    {date}
+                    {formatDate(analysisDate)}
                   </span>
                   <span
                     className={`text-base font-medium ${statusClasses[status].text}`}

@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
-import KeypointOverlay from "../../components/KeypointOverlay.jsx";
+import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
+import { saveReport } from "../../api/reports.js";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { formatValue } from "../../lib/format.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
 import {
   PlusIcon,
@@ -19,22 +22,17 @@ const DECISION_STYLES = {
   "Defer to Judge": "bg-amber-100 text-amber-700",
 };
 
-/** Angles read in degrees; every other criterion is a dimensionless ratio. */
-function formatValue(criterionKey, value, uncertainty) {
-  const isAngle = criterionKey === "caudal-spread-angle";
-  const digits = isAngle ? 1 : 3;
-  const unit = isAngle ? "°" : "";
-  return `${value.toFixed(digits)}${unit} ± ${uncertainty.toFixed(digits)}${unit}`;
-}
-
 function UploadView() {
+  const { user } = useAuth();
+  const [saveState, setSaveState] = useState(null); // null | "saved" | error message
   const fileInputRef = useRef(null);
   const [image, setImage] = useState(null); // { url, name, uploadedAt, file }
   const [isDragging, setIsDragging] = useState(false);
   const [report, setReport] = useState(null);
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
   const [error, setError] = useState(null);
-  const [showOverlay, setShowOverlay] = useState(true);
+  const [showKeypoints, setShowKeypoints] = useState(true);
+  const [showHeatmap, setShowHeatmap] = useState(false);
   const [selectedCriterion, setSelectedCriterion] = useState(null);
 
   async function loadFile(file) {
@@ -49,11 +47,18 @@ function UploadView() {
     setError(null);
     setStatus("loading");
     setSelectedCriterion(null);
+    setSaveState(null);
 
     try {
       const result = await analyzeImage(file);
       setReport(result);
       setStatus("done");
+      try {
+        await saveReport(file, result, user.id);
+        setSaveState("saved");
+      } catch (saveErr) {
+        setSaveState(`Not saved to history: ${saveErr.message}`);
+      }
     } catch (err) {
       setError(err.message);
       setStatus("error");
@@ -72,6 +77,7 @@ function UploadView() {
     setError(null);
     setStatus("idle");
     setSelectedCriterion(null);
+    setSaveState(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -106,6 +112,12 @@ function UploadView() {
         </div>
       )}
 
+      {saveState && saveState !== "saved" && (
+        <div className="mb-6 rounded-xl border-l-4 border-red-500 bg-red-50 p-5">
+          <p className="text-sm text-red-700">{saveState}</p>
+        </div>
+      )}
+
       {report?.warnings?.length > 0 && report.model_trained && (
         <div className="mb-6 rounded-xl border-l-4 border-amber-500 bg-amber-50 p-5">
           {report.warnings.map((w, i) => (
@@ -126,15 +138,12 @@ function UploadView() {
                 Analyze Image
               </div>
               {report && (
-                <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-500">
-                  <input
-                    type="checkbox"
-                    checked={showOverlay}
-                    onChange={(e) => setShowOverlay(e.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300"
-                  />
-                  Keypoints
-                </label>
+                <OverlayToggles
+                  showKeypoints={showKeypoints}
+                  setShowKeypoints={setShowKeypoints}
+                  showHeatmap={showHeatmap}
+                  setShowHeatmap={setShowHeatmap}
+                />
               )}
             </div>
 
@@ -146,55 +155,43 @@ function UploadView() {
               onChange={(e) => loadFile(e.target.files?.[0])}
             />
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={handleDrop}
-              className={`relative flex aspect-[4/3] w-full flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed transition ${
-                isDragging
-                  ? "border-betta-500 bg-betta-50"
-                  : "border-slate-300 bg-slate-50 hover:border-betta-400 hover:bg-betta-50/50"
-              }`}
-            >
-              {image ? (
-                <>
-                  <img
-                    src={image.url}
-                    alt="Uploaded betta"
-                    className="h-full w-full object-contain"
-                  />
-                  {showOverlay && report && (
-                    <KeypointOverlay
-                      report={report}
-                      showSkeleton={false}
-                      highlightIndices={highlightIndices}
-                    />
-                  )}
-                  {status === "loading" && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/70">
-                      <span className="text-base font-medium text-betta-700">
-                        Running pipeline&hellip;
-                      </span>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <UploadIcon className="h-9 w-9 text-slate-400" />
-                  <span className="mt-3 text-base font-medium text-slate-400">
-                    Upload Image
-                  </span>
-                  <span className="mt-1 text-sm text-slate-400">
-                    Click or drag a photo here
-                  </span>
-                </>
-              )}
-            </button>
+            {image ? (
+              <ImageStage
+                imageUrl={image.url}
+                alt="Uploaded betta"
+                report={report}
+                loading={status === "loading"}
+                highlightIndices={highlightIndices}
+                showKeypoints={showKeypoints}
+                setShowKeypoints={setShowKeypoints}
+                showHeatmap={showHeatmap}
+                setShowHeatmap={setShowHeatmap}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsDragging(true);
+                }}
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={handleDrop}
+                className={`relative flex aspect-[4/3] w-full flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed transition ${
+                  isDragging
+                    ? "border-betta-500 bg-betta-50"
+                    : "border-slate-300 bg-slate-50 hover:border-betta-400 hover:bg-betta-50/50"
+                }`}
+              >
+                <UploadIcon className="h-9 w-9 text-slate-400" />
+                <span className="mt-3 text-base font-medium text-slate-400">
+                  Upload Image
+                </span>
+                <span className="mt-1 text-sm text-slate-400">
+                  Click or drag a photo here
+                </span>
+              </button>
+            )}
 
             {error && (
               <p className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -300,7 +297,7 @@ function UploadView() {
                   disabled={!m}
                   onClick={() => {
                     setSelectedCriterion(selected ? null : key);
-                    if (!selected) setShowOverlay(true);
+                    if (!selected) setShowKeypoints(true);
                   }}
                   className={`flex w-full items-center gap-4 rounded-xl px-5 py-4 text-left transition ${
                     selected
@@ -340,7 +337,7 @@ function UploadView() {
 
           <p className="mt-5 text-center text-sm text-slate-400">
             {status === "done"
-              ? `Report ${report.id.slice(0, 8)} · ${report.keypoints.length} landmarks localized`
+              ? `Report ${report.id.slice(0, 8)} · ${report.keypoints.length} landmarks localized${saveState === "saved" ? " · saved to history" : ""}`
               : status === "loading"
                 ? "Running the perception → analytical → decisional pipeline…"
                 : "Upload a photo to run the full measurement suite."}
