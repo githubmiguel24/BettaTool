@@ -155,7 +155,7 @@ class AssessmentPipeline:
 
             actual_rmse = float(np.sqrt(np.mean(np.diag(block_covariance))))
 
-            result = evaluate_criterion(criterion_key, measurement, uncertainty, tsi, actual_rmse)
+            result = evaluate_criterion(criterion_key, measurement, threshold, uncertainty, tsi, actual_rmse)
             result.low_visibility_keypoints = low_visibility_keypoints
             results.append(result)
 
