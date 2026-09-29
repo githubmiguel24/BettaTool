@@ -8,7 +8,7 @@ from datetime import datetime
 from app.api.schemas.measurement import MeasurementResult
 from app.api.schemas.report import AssessmentReport
 from app.decisional.abstention_gate import CriterionResult
-from app.reports.labels import CRITERION_LABELS
+from app.reports.labels import CRITERION_LABELS, CRITERION_LANDMARKS
 
 
 def build_report(image_id: str, criterion_results: list[CriterionResult]) -> AssessmentReport:
@@ -21,6 +21,7 @@ def build_report(image_id: str, criterion_results: list[CriterionResult]) -> Ass
             tsi=r.tsi,
             rmse=r.actual_rmse,
             decision=r.decision,
+            landmark_indices=CRITERION_LANDMARKS.get(r.criterion_key, []),
         )
         for r in criterion_results
     ]

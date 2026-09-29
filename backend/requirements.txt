@@ -5,6 +5,7 @@ pydantic-settings>=2.5
 python-multipart>=0.0.9
 torch>=2.3
 torchvision>=0.18
+timm>=1.0  # required for the timm hrnet_w32 backbone matching trained checkpoints
 numpy>=1.26
 scipy>=1.13
 scikit-learn>=1.5

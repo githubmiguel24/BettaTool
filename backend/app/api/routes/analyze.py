@@ -9,7 +9,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from app.api.schemas.keypoint import KeypointPrediction
 from app.api.schemas.report import AssessmentReport
 from app.core.db import save_report
-from app.perception.keypoints import KEYPOINT_SHORT_CODES
+from app.perception.keypoints import KEYPOINT_GROUPS, KEYPOINT_SHORT_CODES
 from app.perception.loader import load_model_bundle
 from app.perception.preprocess import decode_image, preprocess_image
 from app.pipeline import AssessmentPipeline
@@ -64,6 +64,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
             index=i,
             name=KEYPOINT_SHORT_CODES[i],
             label=KEYPOINT_LABELS[i],
+            group=KEYPOINT_GROUPS[i],
             x=float(output.keypoints[i, 0]),
             y=float(output.keypoints[i, 1]),
             sigma_x=float(output.covariances[i, 0, 0] ** 0.5),

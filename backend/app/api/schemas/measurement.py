@@ -11,3 +11,4 @@ class MeasurementResult(BaseModel):
     tsi: float
     rmse: float
     decision: str  # "Confident Pass" | "Confident Fault" | "Defer to Judge"
+    landmark_indices: list[int] = []  # keypoints this criterion reads, for UI highlighting

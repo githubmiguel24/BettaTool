@@ -3,6 +3,7 @@ import DashboardLayout from "../../components/DashboardLayout.jsx";
 import KeypointOverlay from "../../components/KeypointOverlay.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
+import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
 import {
   PlusIcon,
   ImageIcon,
@@ -34,6 +35,7 @@ function UploadView() {
   const [status, setStatus] = useState("idle"); // idle | loading | done | error
   const [error, setError] = useState(null);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [selectedCriterion, setSelectedCriterion] = useState(null);
 
   async function loadFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
@@ -46,6 +48,7 @@ function UploadView() {
     setReport(null);
     setError(null);
     setStatus("loading");
+    setSelectedCriterion(null);
 
     try {
       const result = await analyzeImage(file);
@@ -68,12 +71,16 @@ function UploadView() {
     setReport(null);
     setError(null);
     setStatus("idle");
+    setSelectedCriterion(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   const byKey = Object.fromEntries(
     (report?.measurements ?? []).map((m) => [m.criterion_key, m]),
   );
+  const highlightIndices = selectedCriterion
+    ? (byKey[selectedCriterion]?.landmark_indices ?? [])
+    : null;
 
   return (
     <DashboardLayout
@@ -161,7 +168,13 @@ function UploadView() {
                     alt="Uploaded betta"
                     className="h-full w-full object-contain"
                   />
-                  {showOverlay && report && <KeypointOverlay report={report} />}
+                  {showOverlay && report && (
+                    <KeypointOverlay
+                      report={report}
+                      showSkeleton={false}
+                      highlightIndices={highlightIndices}
+                    />
+                  )}
                   {status === "loading" && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/70">
                       <span className="text-base font-medium text-betta-700">
@@ -192,21 +205,37 @@ function UploadView() {
             {/* Landmark legend, driven by the API response rather than a
                 hardcoded list that can drift from the model's schema. */}
             {report?.keypoints?.length > 0 && (
-              <div className="mt-6 grid grid-cols-2 gap-x-5 gap-y-2 text-sm text-slate-500">
-                {report.keypoints.map((kp) => (
-                  <div key={kp.index} className="flex items-center gap-2.5">
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        kp.low_visibility ? "bg-slate-400" : "bg-red-500"
-                      }`}
-                    />
-                    <span className="truncate">{kp.label}</span>
-                    <span className="ml-auto shrink-0 tabular-nums text-xs text-slate-400">
-                      &plusmn;{Math.max(kp.sigma_x, kp.sigma_y).toFixed(1)}px
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <>
+                <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
+                  {Object.entries(GROUP_LABELS).map(([group, label]) => (
+                    <div key={group} className="flex items-center gap-1.5">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: colorForGroup(group) }}
+                      />
+                      {label}
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 text-sm text-slate-500">
+                  {report.keypoints.map((kp) => (
+                    <div key={kp.index} className="flex items-center gap-2.5">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: kp.low_visibility
+                            ? "#94a3b8"
+                            : colorForGroup(kp.group),
+                        }}
+                      />
+                      <span className="truncate">{kp.label}</span>
+                      <span className="ml-auto shrink-0 tabular-nums text-xs text-slate-400">
+                        &plusmn;{Math.max(kp.sigma_x, kp.sigma_y).toFixed(1)}px
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
@@ -246,18 +275,38 @@ function UploadView() {
 
         {/* Right: measurements */}
         <div className="flex flex-col rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-          <div className="mb-5 flex items-center gap-2.5 text-base font-semibold text-slate-700">
-            <RulerIcon className="h-5 w-5 text-betta-600" />
-            Morphometric Measurements
+          <div className="mb-5 flex items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2.5 text-base font-semibold text-slate-700">
+              <RulerIcon className="h-5 w-5 text-betta-600" />
+              Morphometric Measurements
+            </div>
+            {report && (
+              <span className="text-xs text-slate-400">
+                {selectedCriterion
+                  ? "Click again to clear"
+                  : "Click a row to highlight its landmarks"}
+              </span>
+            )}
           </div>
 
           <div className="flex-1 space-y-3.5">
             {CRITERIA.map(({ key, label, description, icon: Icon }) => {
               const m = byKey[key];
+              const selected = selectedCriterion === key;
               return (
-                <div
+                <button
                   key={key}
-                  className="flex items-center gap-4 rounded-xl bg-slate-50 px-5 py-4 transition hover:bg-betta-50"
+                  type="button"
+                  disabled={!m}
+                  onClick={() => {
+                    setSelectedCriterion(selected ? null : key);
+                    if (!selected) setShowOverlay(true);
+                  }}
+                  className={`flex w-full items-center gap-4 rounded-xl px-5 py-4 text-left transition ${
+                    selected
+                      ? "bg-betta-50 ring-2 ring-betta-400"
+                      : "bg-slate-50 ring-1 ring-transparent hover:bg-betta-50"
+                  } ${m ? "cursor-pointer" : "cursor-default"}`}
                 >
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-betta-600 ring-1 ring-slate-200">
                     <Icon className="h-5 w-5" />
@@ -284,7 +333,7 @@ function UploadView() {
                       ? "Running…"
                       : (m?.decision ?? "Pending")}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>

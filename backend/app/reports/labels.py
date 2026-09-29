@@ -9,7 +9,7 @@ does not exist in `app/perception/keypoints.py`, and was missing
 and makes that class of drift impossible.
 """
 
-from app.perception.keypoints import NUM_KEYPOINTS
+from app.perception.keypoints import NUM_KEYPOINTS, Keypoint
 
 CRITERION_LABELS = {
     "caudal-spread-angle": "Caudal Spread Angle",
@@ -40,4 +40,61 @@ KEYPOINT_LABELS = [
 assert len(KEYPOINT_LABELS) == NUM_KEYPOINTS, (
     f"KEYPOINT_LABELS has {len(KEYPOINT_LABELS)} entries but the schema "
     f"defines {NUM_KEYPOINTS} landmarks."
+)
+
+# Which keypoint indices each criterion in app/analytical/morphometrics.py
+# actually reads, so the frontend can highlight them on click without
+# duplicating that module's geometry. Kept index-aligned with the functions
+# themselves rather than re-derived, since a silent drift here would just
+# highlight the wrong landmarks with no visible error.
+CRITERION_LANDMARKS: dict[str, list[int]] = {
+    "caudal-spread-angle": [
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.CAUDAL_FIN_CENTER,
+        Keypoint.CAUDAL_FIN_TIP_UPPER,
+        Keypoint.CAUDAL_FIN_TIP_LOWER,
+    ],
+    "dorsal-body-ratio": [
+        Keypoint.SNOUT_TIP,
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.DORSAL_FIN_BASE_ANTERIOR,
+        Keypoint.DORSAL_FIN_BASE_POSTERIOR,
+        Keypoint.DORSAL_FIN_TIP,
+    ],
+    "anal-body-ratio": [
+        Keypoint.SNOUT_TIP,
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.ANAL_FIN_BASE_ANTERIOR,
+        Keypoint.ANAL_FIN_BASE_POSTERIOR,
+        Keypoint.ANAL_FIN_TIP,
+    ],
+    "caudal-body-ratio": [
+        Keypoint.SNOUT_TIP,
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.CAUDAL_FIN_CENTER,
+    ],
+    "anal-caudal-ratio": [
+        Keypoint.ANAL_FIN_BASE_ANTERIOR,
+        Keypoint.ANAL_FIN_BASE_POSTERIOR,
+        Keypoint.ANAL_FIN_TIP,
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.CAUDAL_FIN_CENTER,
+    ],
+    "dorsal-caudal-ratio": [
+        Keypoint.DORSAL_FIN_BASE_ANTERIOR,
+        Keypoint.DORSAL_FIN_BASE_POSTERIOR,
+        Keypoint.DORSAL_FIN_TIP,
+        Keypoint.CAUDAL_PEDUNCLE_TOP,
+        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
+        Keypoint.CAUDAL_FIN_CENTER,
+    ],
+}
+
+assert set(CRITERION_LANDMARKS) == set(CRITERION_LABELS), (
+    "CRITERION_LANDMARKS is missing or has extra keys relative to CRITERION_LABELS"
 )

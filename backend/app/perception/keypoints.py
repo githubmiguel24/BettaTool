@@ -1,6 +1,6 @@
 """Keypoint mappings for the betta fish model."""
 
-from enum import IntEnum
+from enum import Enum, IntEnum
 
 
 class Keypoint(IntEnum):
@@ -40,6 +40,35 @@ KEYPOINT_SHORT_CODES: list[str] = [
     "anal_base_post",
     "anal_tip",
 ]
+
+class KeypointGroup(str, Enum):
+    # anatomical part each landmark belongs to, for color-coding in the UI
+    HEAD = "head"
+    DORSAL_FIN = "dorsal_fin"
+    CAUDAL_FIN = "caudal_fin"
+    ANAL_FIN = "anal_fin"
+
+
+# index-aligned with the Keypoint enum above
+KEYPOINT_GROUPS: list[str] = [
+    KeypointGroup.HEAD,
+    KeypointGroup.HEAD,
+    KeypointGroup.DORSAL_FIN,
+    KeypointGroup.DORSAL_FIN,
+    KeypointGroup.DORSAL_FIN,
+    KeypointGroup.CAUDAL_FIN,
+    KeypointGroup.CAUDAL_FIN,
+    KeypointGroup.CAUDAL_FIN,
+    KeypointGroup.CAUDAL_FIN,
+    KeypointGroup.CAUDAL_FIN,
+    KeypointGroup.ANAL_FIN,
+    KeypointGroup.ANAL_FIN,
+    KeypointGroup.ANAL_FIN,
+]
+assert len(KEYPOINT_GROUPS) == NUM_KEYPOINTS, (
+    f"KEYPOINT_GROUPS has {len(KEYPOINT_GROUPS)} entries but the schema "
+    f"defines {NUM_KEYPOINTS} landmarks."
+)
 
 # connection lines for debug viz
 SKELETON_EDGES: list[tuple[int, int]] = [

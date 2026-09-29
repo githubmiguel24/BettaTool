@@ -10,6 +10,7 @@ class KeypointPrediction(BaseModel):
     index: int
     name: str  # shrt code like "caudal_center"
     label: str  # human readable, e.g. "Caudal Fin Center"
+    group: str  # anatomical part, e.g. "caudal_fin" - see KeypointGroup
     x: float
     y: float
     sigma_x: float  # sqrt(Sigma[0, 0]) in orig pixels

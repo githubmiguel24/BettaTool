@@ -10,7 +10,19 @@
  * the covariance head's output is visible rather than buried in the JSON.
  * That ellipse is the whole point of the probabilistic tier: a confident
  * landmark shows a tight dot, an uncertain one visibly blooms.
+ *
+ * Dots are colored by the API's `group` field (head / dorsal / caudal / anal
+ * fin) so the anatomical part a landmark belongs to is visible at a glance,
+ * not just its low-visibility state.
+ *
+ * `highlightIndices`, when set (even to an empty array), switches the overlay
+ * into "spotlight" mode for a selected measurement: every skeleton edge, dot,
+ * and ellipse outside the set is hidden entirely - not just dimmed - so only
+ * the landmarks that measurement actually reads remain, each with a soft glow
+ * halo behind it (a small heatmap-like hot spot rather than a flat marker).
  */
+
+import { colorForGroup } from "../data/keypointGroups.js";
 
 // Index-aligned with app/perception/keypoints.py SKELETON_EDGES.
 const SKELETON_EDGES = [
@@ -37,12 +49,20 @@ function ellipseParams(sigmaX, sigmaY, rho) {
   return { rx: Math.sqrt(l1), ry: Math.sqrt(l2), angle };
 }
 
-function KeypointOverlay({ report, showEllipses = true, showSkeleton = true }) {
+function KeypointOverlay({
+  report,
+  showEllipses = true,
+  showSkeleton = true,
+  highlightIndices = null,
+}) {
   if (!report?.keypoints?.length) return null;
 
   const { keypoints, image_width: w, image_height: h } = report;
   // Stroke widths must scale with the image or they vanish on a 4000px photo.
   const unit = Math.max(w, h) / 400;
+
+  const spotlight = Array.isArray(highlightIndices);
+  const isLit = (i) => !spotlight || highlightIndices.includes(i);
 
   return (
     <svg
@@ -50,11 +70,25 @@ function KeypointOverlay({ report, showEllipses = true, showSkeleton = true }) {
       className="pointer-events-none absolute inset-0 h-full w-full"
       preserveAspectRatio="xMidYMid meet"
     >
+      {spotlight && (
+        <defs>
+          <filter id="kp-glow" x="-200%" y="-200%" width="500%" height="500%">
+            <feGaussianBlur stdDeviation={unit * 1.4} result="blur" />
+            <feMerge>
+              <feMergeNode in="blur" />
+              <feMergeNode in="blur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+      )}
+
       {showSkeleton &&
         SKELETON_EDGES.map(([a, b]) => {
           const p = keypoints[a];
           const q = keypoints[b];
           if (!p || !q) return null;
+          if (spotlight && !(isLit(a) && isLit(b))) return null;
           const dim = p.low_visibility || q.low_visibility;
           return (
             <line
@@ -65,7 +99,7 @@ function KeypointOverlay({ report, showEllipses = true, showSkeleton = true }) {
               y2={q.y}
               stroke={dim ? "#94a3b8" : "#22d3ee"}
               strokeWidth={unit * 0.9}
-              strokeOpacity={dim ? 0.35 : 0.75}
+              strokeOpacity={spotlight ? 0.85 : dim ? 0.35 : 0.75}
               strokeLinecap="round"
               strokeDasharray={dim ? `${unit * 2} ${unit * 2}` : undefined}
             />
@@ -74,6 +108,7 @@ function KeypointOverlay({ report, showEllipses = true, showSkeleton = true }) {
 
       {showEllipses &&
         keypoints.map((kp) => {
+          if (spotlight && !isLit(kp.index)) return null;
           const { rx, ry, angle } = ellipseParams(kp.sigma_x, kp.sigma_y, kp.rho);
           return (
             <ellipse
@@ -92,18 +127,32 @@ function KeypointOverlay({ report, showEllipses = true, showSkeleton = true }) {
           );
         })}
 
-      {keypoints.map((kp) => (
-        <g key={`p-${kp.index}`}>
-          <circle
-            cx={kp.x}
-            cy={kp.y}
-            r={unit * 1.7}
-            fill={kp.low_visibility ? "#94a3b8" : "#ef4444"}
-            stroke="#ffffff"
-            strokeWidth={unit * 0.6}
-          />
-        </g>
-      ))}
+      {keypoints.map((kp) => {
+        if (spotlight && !isLit(kp.index)) return null;
+        const color = kp.low_visibility ? "#94a3b8" : colorForGroup(kp.group);
+        return (
+          <g key={`p-${kp.index}`}>
+            {spotlight && (
+              <circle
+                cx={kp.x}
+                cy={kp.y}
+                r={unit * 3.2}
+                fill={color}
+                fillOpacity={0.45}
+                filter="url(#kp-glow)"
+              />
+            )}
+            <circle
+              cx={kp.x}
+              cy={kp.y}
+              r={spotlight ? unit * 2.3 : unit * 1.7}
+              fill={color}
+              stroke="#ffffff"
+              strokeWidth={unit * 0.6}
+            />
+          </g>
+        );
+      })}
     </svg>
   );
 }
