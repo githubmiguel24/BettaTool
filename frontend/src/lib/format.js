@@ -6,11 +6,11 @@ export function formatValue(criterionKey, value, uncertainty) {
   return `${value.toFixed(digits)}${unit} ± ${uncertainty.toFixed(digits)}${unit}`;
 }
 
-/** One verdict per report: any fault wins, then any deferral, else pass. */
-export function overallStatus(decisions) {
-  if (decisions.includes("Confident Fault")) return "Fault";
-  if (decisions.includes("Defer to Judge")) return "Defer";
-  return "Pass";
+/** Backend decision string -> "Pass" | "Defer" | "Fault" (unknown -> Defer). */
+export function decisionKind(decision) {
+  if (decision === "Confident Pass") return "Pass";
+  if (decision === "Confident Fault") return "Fault";
+  return "Defer";
 }
 
 export function formatDate(iso) {

@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import ConfirmDialog from "../../components/ConfirmDialog.jsx";
+import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
-import { getReport } from "../../api/reports.js";
+import { deleteReports, getReport } from "../../api/reports.js";
 import { formatDate, formatValue } from "../../lib/format.js";
 import {
   PlusIcon,
   ImageIcon,
   RulerIcon,
-  FilePdfIcon,
+  TrashIcon,
   FileCsvIcon,
   CheckIcon,
   WarningIcon,
@@ -47,25 +49,55 @@ function downloadCsv(report) {
 
 function ReportView() {
   const { id } = useParams();
+  const navigate = useNavigate();
+  const captureRef = useRef(null);
   const [report, setReport] = useState(undefined); // undefined = loading, null = not found
   const [error, setError] = useState(null);
   const [selectedCriterion, setSelectedCriterion] = useState(null);
   const [showKeypoints, setShowKeypoints] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState(null);
 
   useEffect(() => {
     setReport(undefined);
     getReport(id).then(setReport).catch((e) => setError(e.message));
   }, [id]);
 
+  async function handleDelete() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteReports([id]);
+      navigate("/history");
+    } catch (e) {
+      setDeleteError(e.message);
+      setConfirmingDelete(false);
+      setDeleting(false);
+    }
+  }
+
   const newAnalysis = (
-    <Link
-      to="/upload"
-      className="flex items-center gap-2 rounded-full bg-betta-950 px-6 py-3 text-base font-semibold text-white shadow-glow transition hover:bg-betta-900"
-    >
-      New Analysis
-      <PlusIcon className="h-5 w-5" />
-    </Link>
+    <div className="flex items-center gap-3">
+      {report && (
+        <button
+          type="button"
+          onClick={() => setConfirmingDelete(true)}
+          className="flex items-center gap-2 rounded-full bg-red-50 px-5 py-3 text-base font-medium text-red-600 transition hover:bg-red-100"
+        >
+          <TrashIcon className="h-5 w-5" />
+          Delete
+        </button>
+      )}
+      <Link
+        to="/upload"
+        className="flex items-center gap-2 rounded-full bg-betta-950 px-6 py-3 text-base font-semibold text-white shadow-glow transition hover:bg-betta-900"
+      >
+        New Analysis
+        <PlusIcon className="h-5 w-5" />
+      </Link>
+    </div>
   );
 
   if (error || report === null || report === undefined) {
@@ -85,6 +117,11 @@ function ReportView() {
 
   return (
     <DashboardLayout actions={newAnalysis}>
+      {deleteError && (
+        <p className="mb-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          {deleteError}
+        </p>
+      )}
       {!report.model_trained && (
         <div className="mb-6 rounded-xl border-l-4 border-red-500 bg-red-50 p-5">
           <p className="text-base font-semibold text-red-800">False results.</p>
@@ -103,7 +140,7 @@ function ReportView() {
         </div>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div ref={captureRef} className="grid gap-8 lg:grid-cols-2">
         {/* Left: image + landmarks + info */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
@@ -112,12 +149,14 @@ function ReportView() {
                 <ImageIcon className="h-5 w-5 text-betta-600" />
                 Analyzed Image
               </div>
-              <OverlayToggles
-                showKeypoints={showKeypoints}
-                setShowKeypoints={setShowKeypoints}
-                showHeatmap={showHeatmap}
-                setShowHeatmap={setShowHeatmap}
-              />
+              <div data-html2canvas-ignore>
+                <OverlayToggles
+                  showKeypoints={showKeypoints}
+                  setShowKeypoints={setShowKeypoints}
+                  showHeatmap={showHeatmap}
+                  setShowHeatmap={setShowHeatmap}
+                />
+              </div>
             </div>
 
             <ImageStage
@@ -179,7 +218,7 @@ function ReportView() {
               <RulerIcon className="h-5 w-5 text-betta-600" />
               Morphometric Measurements
             </div>
-            <span className="text-xs text-slate-400">
+            <span data-html2canvas-ignore className="text-xs text-slate-400">
               {selectedCriterion
                 ? "Click again to clear"
                 : "Click a row to highlight its landmarks"}
@@ -245,16 +284,13 @@ function ReportView() {
               </span>
             </div>
 
-            <div className="flex items-center gap-3.5">
+            <div data-html2canvas-ignore className="flex items-center gap-3.5">
               <span className="text-base font-medium text-slate-500">Export</span>
               <div className="flex items-center gap-2.5">
-                <span
-                  title="PDF export not implemented yet - use CSV"
-                  className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-lg bg-slate-100 text-slate-300"
-                  aria-label="Export as PDF (unavailable)"
-                >
-                  <FilePdfIcon className="h-5 w-5" />
-                </span>
+                <ExportPdfButton
+                  targetRef={captureRef}
+                  filename={`report-${report.id.slice(0, 8)}.pdf`}
+                />
                 <button
                   type="button"
                   onClick={() => downloadCsv(report)}
@@ -268,6 +304,15 @@ function ReportView() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this analysis?"
+        message="This permanently deletes the image and its results."
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </DashboardLayout>
   );
 }

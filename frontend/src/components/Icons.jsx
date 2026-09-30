@@ -251,6 +251,31 @@ export function FilePdfIcon(props) {
         strokeLinejoin="round"
       />
       <path d="M14 3v5h5" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+      <text
+        x="12"
+        y="17.5"
+        textAnchor="middle"
+        fontSize="5.6"
+        fontWeight="700"
+        fontFamily="Arial, sans-serif"
+        fill="currentColor"
+      >
+        PDF
+      </text>
+    </svg>
+  );
+}
+
+export function TrashIcon(props) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <path
+        d="M4 7h16M9.5 7V4.5h5V7M6.5 7l.8 12a1.5 1.5 0 001.5 1.4h6.4a1.5 1.5 0 001.5-1.4L17.5 7M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

@@ -347,7 +347,9 @@ function ImageStage({
       {loading && <AnalyzingOverlay />}
 
       {report && (
-        <span className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-900/60 px-3 py-1 text-xs text-white">
+        <span
+          data-html2canvas-ignore
+          className="pointer-events-none absolute bottom-3 right-3 rounded-full bg-slate-900/60 px-3 py-1 text-xs text-white">
           Click to enlarge
         </span>
       )}

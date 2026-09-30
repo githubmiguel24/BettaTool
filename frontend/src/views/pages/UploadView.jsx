@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
+import ConfirmDialog from "../../components/ConfirmDialog.jsx";
+import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
-import { saveReport } from "../../api/reports.js";
+import { deleteReports, saveReport } from "../../api/reports.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { formatValue } from "../../lib/format.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
@@ -12,7 +14,7 @@ import {
   ImageIcon,
   UploadIcon,
   RulerIcon,
-  FilePdfIcon,
+  TrashIcon,
   FileCsvIcon,
 } from "../../components/Icons.jsx";
 
@@ -26,6 +28,9 @@ function UploadView() {
   const { user } = useAuth();
   const [saveState, setSaveState] = useState(null); // null | "saved" | error message
   const fileInputRef = useRef(null);
+  const captureRef = useRef(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [image, setImage] = useState(null); // { url, name, uploadedAt, file }
   const [isDragging, setIsDragging] = useState(false);
   const [report, setReport] = useState(null);
@@ -81,6 +86,18 @@ function UploadView() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteReports([report.id]);
+      resetUpload();
+    } catch (err) {
+      setSaveState(`Could not delete: ${err.message}`);
+    }
+    setConfirmingDelete(false);
+    setDeleting(false);
+  }
+
   const byKey = Object.fromEntries(
     (report?.measurements ?? []).map((m) => [m.criterion_key, m]),
   );
@@ -91,13 +108,25 @@ function UploadView() {
   return (
     <DashboardLayout
       actions={
-        <button
-          onClick={resetUpload}
-          className="flex items-center gap-2 rounded-full bg-betta-950 px-6 py-3 text-base font-semibold text-white shadow-glow transition hover:bg-betta-900"
-        >
-          New Analysis
-          <PlusIcon className="h-5 w-5" />
-        </button>
+        <div className="flex items-center gap-3">
+          {saveState === "saved" && (
+            <button
+              type="button"
+              onClick={() => setConfirmingDelete(true)}
+              className="flex items-center gap-2 rounded-full bg-red-50 px-5 py-3 text-base font-medium text-red-600 transition hover:bg-red-100"
+            >
+              <TrashIcon className="h-5 w-5" />
+              Delete
+            </button>
+          )}
+          <button
+            onClick={resetUpload}
+            className="flex items-center gap-2 rounded-full bg-betta-950 px-6 py-3 text-base font-semibold text-white shadow-glow transition hover:bg-betta-900"
+          >
+            New Analysis
+            <PlusIcon className="h-5 w-5" />
+          </button>
+        </div>
       }
     >
       {/* Integrity banner: an untrained backend must never be mistaken for a result. */}
@@ -128,7 +157,7 @@ function UploadView() {
         </div>
       )}
 
-      <div className="grid gap-8 lg:grid-cols-2">
+      <div ref={captureRef} className="grid gap-8 lg:grid-cols-2">
         {/* Left: image upload + overlay */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
@@ -138,12 +167,14 @@ function UploadView() {
                 Analyze Image
               </div>
               {report && (
-                <OverlayToggles
-                  showKeypoints={showKeypoints}
-                  setShowKeypoints={setShowKeypoints}
-                  showHeatmap={showHeatmap}
-                  setShowHeatmap={setShowHeatmap}
-                />
+                <div data-html2canvas-ignore>
+                  <OverlayToggles
+                    showKeypoints={showKeypoints}
+                    setShowKeypoints={setShowKeypoints}
+                    showHeatmap={showHeatmap}
+                    setShowHeatmap={setShowHeatmap}
+                  />
+                </div>
               )}
             </div>
 
@@ -278,7 +309,7 @@ function UploadView() {
               Morphometric Measurements
             </div>
             {report && (
-              <span className="text-xs text-slate-400">
+              <span data-html2canvas-ignore className="text-xs text-slate-400">
                 {selectedCriterion
                   ? "Click again to clear"
                   : "Click a row to highlight its landmarks"}
@@ -343,24 +374,23 @@ function UploadView() {
                 : "Upload a photo to run the full measurement suite."}
           </p>
 
-          <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-5">
+          <div
+            data-html2canvas-ignore
+            className="mt-5 flex items-center justify-between border-t border-slate-100 pt-5"
+          >
             <span className="text-base font-medium text-slate-500">Export</span>
             <div
               className={`flex items-center gap-2.5 transition ${
                 report ? "" : "pointer-events-none opacity-40"
               }`}
             >
-              {/* PDF export is not implemented on the backend yet
-                  (app/reports/exporters.py raises NotImplementedError, which
-                  the route surfaces as a 501). Rendered disabled rather than
-                  linked, so a demo click cannot produce an error toast. */}
-              <span
-                title="PDF export not implemented yet - use CSV"
-                className="flex h-11 w-11 cursor-not-allowed items-center justify-center rounded-lg bg-slate-100 text-slate-300"
-                aria-label="Export as PDF (unavailable)"
-              >
-                <FilePdfIcon className="h-5 w-5" />
-              </span>
+              {/* PDF is a client-side screenshot of the results (see
+                  lib/exportPdf.js); the backend's PDF exporter is unused. */}
+              <ExportPdfButton
+                targetRef={captureRef}
+                filename={`report-${report?.id.slice(0, 8) ?? "analysis"}.pdf`}
+                disabled={!report}
+              />
               <a
                 href={
                   report
@@ -377,6 +407,15 @@ function UploadView() {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Delete this analysis?"
+        message="This permanently deletes the image and its results."
+        busy={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </DashboardLayout>
   );
 }
