@@ -1,5 +1,4 @@
-#rule engine: mesurement -> pass/faut
-# this tier never sees uncertinty. just compares scalar to fixed thresholds
+# rule engine: mesurement -> pass/faut (no uncertainty checks here)
 
 from __future__ import annotations
 
@@ -15,11 +14,12 @@ def classify_caudal_spread(angle_degrees: float) -> str:
     return "Unclassified"
 
 def classify_ratio(criterion_key: str, value: float) -> str:
-    # pAss/fault for ratio based criterion against its single thrshold
+    # pass/fault for ratio based criterion against its single threshold
     threshold = CRITERION_THRESHOLDS[criterion_key]
     return "Pass" if value >= threshold else "Fault"
 
 def classify(criterion_key: str, value: float) -> str:
+    # route to correct classifier
     if criterion_key == "caudal-spread-angle":
         return classify_caudal_spread(value)
     return classify_ratio(criterion_key, value)
