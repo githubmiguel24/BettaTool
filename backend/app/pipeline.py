@@ -1,36 +1,4 @@
-"""End-to-end pipeline: image -> Reliability-Annotated Assessment Report.
-
-Wires the three tiers from Figure 6 together:
-Perceptual (HRNet) -> Analytical (GUM propagation + TSI) -> Decisional
-(IBC rule engine + selective abstention gate).
-
-MIGRATION NOTE (Build Prompt v2 §4.3, §13.2): `HRNetKeypointDetector.forward`
-now returns a 3-tuple `(heatmaps, covariances, visibility)` instead of the
-old 2-tuple `(heatmaps, covariances)`. This module has been updated to
-consume all three — the visibility head's output is NOT silently dropped
-(as the spec explicitly warns against): a keypoint whose predicted
-visibility probability falls below `visibility_threshold` is now flagged in
-each `CriterionResult` via `low_visibility_keypoints`, which
-`app/decisional/abstention_gate.py` does not yet act on. Wiring that into an
-actual abstention/defer decision (e.g. "defer if a criterion depends on a
-low-visibility landmark") is flagged as follow-up work — see
-training/README.md, "Known limitations" §4.
-
-This module also now uses `soft_argmax` (not the old moment-based
-`batch_heatmaps_to_gaussians`) as the mean-extraction path when the model
-provides a covariance head, per the units contract in
-`app/perception/geometry.py` — Sigma from the covariance head is in
-CROP-SPACE pixel units and must be transformed to original-image units
-before the GUM tier consumes it. Since this module receives an already-
-cropped/letterboxed tensor with no affine transform of its own (the caller
-owns cropping), it treats its input tensor's pixel space as the reporting
-space; a caller that crops before calling `analyze` is responsible for
-composing that crop's affine with `app/perception/geometry.py` if it needs
-original-image-pixel output. This is an explicit scope boundary, not an
-oversight — seeing it wired end-to-end needs the FastAPI upload route
-(`app/api/routes/analyze.py`) to own the crop, which is still unwired to a
-trained checkpoint (see README "Status").
-"""
+# main pipeline connecting hrnet keypoint detection, uncertainty propagation, and ibc rule evaluation
 
 from __future__ import annotations
 
@@ -56,14 +24,7 @@ from app.perception.hrnet import HRNetKeypointDetector
 
 @dataclass
 class PipelineOutput:
-    """Everything one image produces, in a single reporting coordinate space.
-
-    `keypoints` is (K, 2) and `covariances` is (K, 2, 2), both in whatever
-    space the caller asked for via `analyze_detailed(to_original=...)`:
-    crop-space pixels when that argument is None, original-image pixels when
-    an inverse-crop affine is supplied. `criteria` holds one
-    `CriterionResult` per IBC criterion, computed in that same space.
-    """
+    # holds full output for a single image in the target coordinate space
 
     criteria: list[CriterionResult]
     keypoints: np.ndarray  # (K, 2)
@@ -73,6 +34,7 @@ class PipelineOutput:
 
 
 class AssessmentPipeline:
+    # sets up model on device and sets cutoff for keypoint visibility
     def __init__(self, model: HRNetKeypointDetector, device: str = "cpu", visibility_threshold: float = 0.5) -> None:
         self.model = model.to(device).eval()
         self.device = device
@@ -80,12 +42,7 @@ class AssessmentPipeline:
 
     @torch.no_grad()
     def analyze(self, image_tensor: torch.Tensor) -> list[CriterionResult]:
-        """Runs one image (1, 3, H, W) through all three tiers.
-
-        Returns one `CriterionResult` per IBC criterion. Thin wrapper over
-        `analyze_detailed` kept for backwards compatibility with callers
-        that only want the decisional-tier output.
-        """
+        # wrapper around analyze_detailed that just returns the criteria list
         return self.analyze_detailed(image_tensor).criteria
 
     @torch.no_grad()
@@ -94,24 +51,11 @@ class AssessmentPipeline:
         image_tensor: torch.Tensor,
         to_original: AffineTransform | None = None,
     ) -> PipelineOutput:
-        """Runs one image (1, 3, H, W) through all three tiers, keeping the
-        perceptual-tier output alongside the decisional-tier verdicts.
-
-        Args:
-            image_tensor: (1, 3, H, W) preprocessed crop.
-            to_original: optional affine mapping CROP space -> ORIGINAL image
-                pixels (i.e. the inverse of the preprocessing letterbox). When
-                supplied, means AND covariances are transformed into original-
-                image pixels *before* the analytical tier runs, so the GUM
-                propagation and the TSI/abstention comparison against keypoint
-                RMSE all happen in the space the units contract
-                (`app/perception/geometry.py`) designates for them. Passing
-                None keeps everything in crop space, which is what the older
-                `analyze()` callers assumed.
-        """
+        # runs the image tensor through detection, uncertainty math, and threshold checks
         model_out = self.model(image_tensor.to(self.device))
 
         if len(model_out) == 3:
+            # unpack 3-tuple output and use soft argmax for means in crop space
             heatmaps, covariances, visibility_logits = model_out
             visibility_probs = torch.sigmoid(visibility_logits)[0].cpu().numpy()
             mu_heatmap_space = soft_argmax(heatmaps)
@@ -119,22 +63,18 @@ class AssessmentPipeline:
             means = mu_crop_space[0].cpu().numpy()
             per_keypoint_covariances = covariances[0].cpu().numpy()
         else:
-            # Backward-compat path for an old 2-tuple checkpoint/model (Build
-            # Prompt v1 contract). Falls back to the moment-based heatmap
-            # covariance, since there is no explicit covariance head output
-            # to trust in that case.
+            # fallback for older 2-tuple models without a visibility head
             heatmaps, legacy_covariances = model_out
             heatmaps_np = heatmaps[0].cpu().numpy()
             legacy_covariances_np = legacy_covariances[0].cpu().numpy()
             means, heatmap_covariances = batch_heatmaps_to_gaussians(heatmaps_np)
             per_keypoint_covariances = legacy_covariances_np if legacy_covariances_np.size else heatmap_covariances
-            visibility_probs = np.ones(means.shape[0])  # no visibility head available; assume all visible
+            visibility_probs = np.ones(means.shape[0])  # assume all visible when head is missing
 
+        # flag keypoints that fall below the visibility threshold
         low_visibility_keypoints = [i for i, p in enumerate(visibility_probs) if p < self.visibility_threshold]
 
-        # Move into the reporting space BEFORE the analytical tier, so that
-        # propagated uncertainty and the pixel-denominated TSI comparison are
-        # expressed in the same units the caller reports to the user.
+        # map coordinates and covariances back to Orignal image space before running gum math
         if to_original is not None:
             means = to_original.apply_points(means)
             per_keypoint_covariances = to_original.apply_covariances(per_keypoint_covariances)
@@ -143,6 +83,7 @@ class AssessmentPipeline:
         block_covariance = assemble_block_covariance(per_keypoint_covariances)
 
         results: list[CriterionResult] = []
+        # evaluate each morphometric criterion and propagate uncertainty
         for criterion_key, measurement_fn in MORPHOMETRIC_FUNCTIONS.items():
             jacobian = numerical_jacobian(measurement_fn, flat_keypoints)
             measurement = measurement_fn(flat_keypoints)

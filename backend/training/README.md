@@ -36,7 +36,7 @@ python -m training.train_hrnet --config training/configs/hrnet_w32.yaml
 
 # 6. Evaluate (with flip TTA, calibration metrics, overlay export):
 python -m training.evaluate --config training/configs/hrnet_w32.yaml \
-    --checkpoint training/runs/<run>/checkpoints/best.pt --split test
+    --checkpoint training/runs/kaggle_run/checkpoints/best.pt --split test
 ```
 
 ## Swapping in the real dataset

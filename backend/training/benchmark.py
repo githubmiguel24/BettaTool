@@ -1,14 +1,3 @@
-"""Throughput + peak VRAM probe — run BEFORE committing to a long training run
-(Build Prompt v2 §8.3). Settles batch size and total projected runtime in
-under five minutes on the target RTX 4050 Laptop (6GB VRAM).
-
-    python -m training.benchmark --config training/configs/hrnet_w32.yaml
-
-Times ~20 training iterations after a 5-iteration warmup and reports
-images/sec, projected seconds/epoch, projected total training hours, and
-`torch.cuda.max_memory_allocated()`.
-"""
-
 from __future__ import annotations
 
 import argparse

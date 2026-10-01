@@ -1,30 +1,7 @@
-"""Two-stage training entrypoint for the probabilistic HRNet keypoint detector.
-
-    python -m training.train_hrnet --config training/configs/hrnet_w32.yaml
-
-Build Prompt v2 §7-§8: Stage 1 (localization warmup, heatmap MSE + L1-on-mu,
-covariance head detached from the loss) runs for `training.stage1_epochs`
-epochs, then Stage 2 (joint probabilistic training, NLL loss ramped in over
-`loss.nll_ramp_epochs`) runs for `training.stage2_epochs` more, with its own
-cosine restart and its own early-stopping window (Stage 1's loss and Stage
-2's loss are not on the same scale, so a single early-stopping monitor
-across both stages would be meaningless — the spec calls this out
-explicitly).
-
-IMPORTANT — see training/README.md, "Known limitations": this file was
-authored and carefully reviewed line-by-line against the spec, but `torch`
-was not installable in the sandbox this codebase was built in, so this loop
-has never actually been run. Run the smoke test
-(`pytest tests/test_smoke_dummy.py`) before trusting it on real data.
-
-RESUMING A CUT-OFF RUN: pass `--resume <run_dir>/checkpoints/last.pt`.
-`last.pt` (unlike `best.pt`) carries the optimizer/scaler state and the
-epoch/stage it was saved at, so resuming restarts training from the next
-epoch in that same stage with the same run directory (metrics.csv keeps
-appending to the original run rather than starting a new one) — not from
-epoch 0. `best.pt` cannot be used to resume (no optimizer/scaler state);
-it's only for loading final weights into the FastAPI backend.
-"""
+# Two-stage training 
+# Stage 1 warms up heatmap and L1 loss 
+#  Stage 2 ramps in Gaussian NLL with a fresh LR schedule
+# Pass --resume <run_dir>/checkpoints/last.pt to continue an interrupted run (best.pt only holds model weights)
 
 from __future__ import annotations
 
@@ -52,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def build_dataloaders(cfg: dict[str, Any]) -> tuple[DataLoader, DataLoader]:
-    """Builds the train (augmented) and val (augmentation-free) DataLoaders from config."""
+    # set up augmented train loader and clean val loader from config
     splits = load_splits(cfg["paths"]["splits_dir"], list(cfg["dataset"]["splits"].keys()))
     img_cfg = cfg["image"]
     ann_path = Path(cfg["paths"]["annotations_dir"]) / "annotations.json"
@@ -97,6 +74,7 @@ def build_dataloaders(cfg: dict[str, Any]) -> tuple[DataLoader, DataLoader]:
 
 
 def build_model_and_optimizer(cfg: dict[str, Any], stage: int) -> tuple[torch.nn.Module, torch.optim.Optimizer]:
+    # init model and AdamW with separate learning rates for backbone and heads
     model_cfg = cfg["model"]
     detach = model_cfg["detach_mu_for_covariance_stage1"] if stage == 1 else model_cfg["detach_mu_for_covariance_stage2"]
     model = HRNetKeypointDetector(backbone_source=model_cfg["backbone_source"], detach_mu_for_covariance=detach)
@@ -117,8 +95,7 @@ def build_model_and_optimizer(cfg: dict[str, Any], stage: int) -> tuple[torch.nn
 
 
 def _visibility_target_from_mask(visibility_mask: torch.Tensor) -> torch.Tensor:
-    """The visibility BCE target is trained on EVERY keypoint (Build Prompt v2 §7) —
-    visibility_mask (1.0 for flags 2/1) doubles directly as that target."""
+    # visibility mask doubles directly as the BCE target for all keypoints
     return visibility_mask
 
 
@@ -136,18 +113,7 @@ def run_stage(
     resume_optimizer_state: dict[str, Any] | None = None,
     resume_scaler_state: dict[str, Any] | None = None,
 ) -> None:
-    """Runs one training stage (Stage 1: heatmap+L1 only; Stage 2: + ramped NLL).
-
-    Args:
-        start_epoch: first epoch index to run (0 for a fresh stage). When
-            resuming mid-stage, this is `checkpoint_epoch + 1`; when the
-            checkpoint belongs to a LATER stage than this one, the caller
-            passes `start_epoch >= n_epochs` so this stage is skipped
-            entirely (it already finished before the run was cut off).
-        resume_optimizer_state / resume_scaler_state: loaded into the
-            freshly-built optimizer/scaler when resuming THIS stage (None
-            for a fresh run, or when resuming into the other stage).
-    """
+    # run a single training stage and handle checkpointing and early stopping
     loss_cfg = cfg["loss"]
     n_epochs = cfg["training"]["stage1_epochs"] if stage == 1 else cfg["training"]["stage2_epochs"]
     warmup_epochs = cfg["training"]["schedule"]["warmup_epochs"]
@@ -175,9 +141,7 @@ def run_stage(
     if resume_scaler_state is not None:
         scaler.load_state_dict(resume_scaler_state)
     if start_epoch > 0:
-        # Schedulers here are stateless-recreate-then-fast-forward: replaying
-        # `.step()` start_epoch times reproduces the LR the original run would
-        # have reached, without needing to separately save/load scheduler state.
+        # fast-forward scheduler steps to match the Resumed epoch LR
         for _ in range(start_epoch):
             scheduler.step()
         logger.info("Resuming stage %d at epoch %d/%d.", stage, start_epoch, n_epochs)
@@ -279,9 +243,7 @@ def run_stage(
 
 
 def _check_covariance_collapse(mean_sigma_px: float, mean_error_px: float, cfg: dict[str, Any]) -> None:
-    """Build Prompt v2 §7 mandatory diagnostic: warn if sigma has collapsed
-    toward sigma_min while error stays flat — the run is invalid regardless
-    of RMSE if this triggers."""
+    # warn if sigma collapses toward sigma_min while radial error stays high
     sigma_min = cfg["units"]["sigma_min_px"]
     if mean_sigma_px <= sigma_min * 1.5 and mean_error_px > sigma_min * 3:
         logger.warning(
@@ -295,9 +257,7 @@ def _check_covariance_collapse(mean_sigma_px: float, mean_error_px: float, cfg: 
 
 @torch.no_grad()
 def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg: dict[str, Any]) -> dict[str, float]:
-    """Cheap per-epoch validation pass (no TTA — Build Prompt v2 §9.1 says TTA
-    is off during training-time validation for speed; full TTA evaluation
-    lives in evaluate.py)."""
+    # fast validation pass per epoch with TTA disabled for speed
     model.eval()
     total_error, total_sigma, n = 0.0, 0.0, 0
     for batch in loader:
@@ -308,7 +268,7 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
         heatmaps, covariances, _ = model(image)
         mu_crop = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps))
 
-        error = torch.linalg.norm(mu_crop - gt_crop, dim=-1)  # (B, K)
+        error = torch.linalg.norm(mu_crop - gt_crop, dim=-1)  # shape (B, K)
         masked_error = (error * visibility_mask).sum() / visibility_mask.sum().clamp_min(1e-8)
 
         mean_eig = 0.5 * (covariances[..., 0, 0] + covariances[..., 1, 1])
@@ -325,6 +285,7 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
 
 
 def main() -> None:
+    # parse CLI args and run both training stages
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=str, required=True)
     parser.add_argument("--device", type=str, default=None, help="Overrides config's training.device.")
@@ -360,9 +321,7 @@ def main() -> None:
             )
         resume_stage = resume_ckpt["stage"]
         resume_epoch = resume_ckpt["epoch"]
-        # Continue writing into the SAME run directory the checkpoint came from
-        # (<run_dir>/checkpoints/last.pt) so metrics.csv/config/plots stay one
-        # continuous record instead of fragmenting across a new run folder.
+        # keep logging into the original run directory so metrics.csv stays continuous
         run_dir = resume_path.parent.parent
         logger.info("Resuming from %s (stage=%d epoch=%d), run_dir=%s", resume_path, resume_stage, resume_epoch, run_dir)
     else:
@@ -386,9 +345,7 @@ def main() -> None:
         resume_scaler_state=resume_ckpt["scaler"] if resume_stage == 1 else None,
     )
 
-    # Stage 2: fresh optimizer + cosine restart (Build Prompt v2 §8: "restart
-    # the cosine schedule at the Stage 2 boundary; document this choice"),
-    # same model weights carried over, detach_mu_for_covariance now False.
+    # rebuild optimizer for Stage 2 with a fresh cosine schedule and updated mu detach flag
     model.detach_mu_for_covariance = cfg["model"]["detach_mu_for_covariance_stage2"]
     opt_cfg = cfg["training"]["optimizer"]
     optimizer = torch.optim.AdamW(

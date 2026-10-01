@@ -1,18 +1,4 @@
-"""Grouped, stratified train/val/test splitting (Build Prompt v2 §5.1).
-
-Pure Python + NumPy — no torch/albumentations dependency, so this module is
-fully testable in any environment. Splits are computed once and written to
-disk as explicit JSON ID lists (`write_splits` / `load_splits`); nothing in
-`training/dataset.py` ever regenerates a split at runtime.
-
-Grouping is mandatory: multiple photographs of the same physical fish
-(`specimen_id`) must land in exactly one partition, never split across
-train/val/test, or identity leaks across partitions and inflates reported
-accuracy (Yagis et al., 2021; Bussola et al., 2021 — cited in Build Prompt
-v2 §5.1). Stratification is applied on the group level using each group's
-*first* sample's strata values, joined into one composite key, so groups
-with many samples don't get a size-1 "stratum" that can't be split evenly.
-"""
+# handles grouped and stratified dataset splitting into train/val/test json files so same fish or multi-fish images dont leak across splits
 
 from __future__ import annotations
 
@@ -24,20 +10,11 @@ from pathlib import Path
 from typing import Any
 
 
+# union-find to group samples that share a specimen_id or show up in the same image_id
 def _union_find_groups(samples: list[dict[str, Any]], group_key: str) -> dict[int, int]:
-    """Returns {sample_index: root_index}, merging two samples into the same
-    root whenever they share `group_key` (e.g. specimen_id) OR share
-    `image_id`.
-
-    The image_id union matters whenever one photo has more than one
-    annotation (multiple fish in frame): those annotations can have
-    different specimen_ids (they're different fish) but must still never be
-    split across partitions from each other, or the same background/
-    lighting/context leaks across train/val/test just as surely as a
-    repeated specimen would.
-    """
     parent = list(range(len(samples)))
 
+    # path compression find
     def find(i: int) -> int:
         while parent[i] != i:
             parent[i] = parent[parent[i]]
@@ -55,12 +32,14 @@ def _union_find_groups(samples: list[dict[str, Any]], group_key: str) -> dict[in
         if group_key not in sample:
             raise ValueError(f"Sample {sample.get('image_id', '?')} is missing group_key '{group_key}'.")
         gk = str(sample[group_key])
+        # merge if we already saw this specimen
         if gk in first_seen_by_group:
             union(i, first_seen_by_group[gk])
         else:
             first_seen_by_group[gk] = i
 
         img = str(sample["image_id"])
+        # also merge annotations from the same photo so backgrounds dont leak
         if img in first_seen_by_image:
             union(i, first_seen_by_image[img])
         else:
@@ -69,6 +48,7 @@ def _union_find_groups(samples: list[dict[str, Any]], group_key: str) -> dict[in
     return {i: find(i) for i in range(len(samples))}
 
 
+# splits samples into partitions while keeping groups together and balancing strata
 def compute_grouped_stratified_split(
     samples: list[dict[str, Any]],
     group_key: str,
@@ -76,31 +56,6 @@ def compute_grouped_stratified_split(
     split_fractions: dict[str, float],
     seed: int,
 ) -> dict[str, list[str]]:
-    """Splits `samples` into named partitions, grouped by `group_key`.
-
-    Args:
-        samples: one dict per annotated image, each with at least an
-            `"image_id"` key, the `group_key` field, and every field named
-            in `stratify_keys`.
-        group_key: field name whose value must not appear in more than one
-            partition (e.g. "specimen_id").
-        stratify_keys: field names combined into one composite stratum key
-            per group (e.g. ["source", "color_morph", "has_occlusion"]).
-        split_fractions: partition name -> fraction, e.g.
-            `{"train": 0.70, "val": 0.15, "test": 0.15}`. Fractions need not
-            sum to exactly 1.0 (they are renormalized), and any number of
-            partitions is supported — this is what lets a future 4th
-            "calib" partition be added by editing config alone.
-        seed: RNG seed for the shuffle within each stratum, for reproducibility.
-
-    Returns:
-        Dict mapping each partition name (same keys as `split_fractions`)
-        to a list of `image_id` strings.
-
-    Raises:
-        ValueError: if `samples` is empty, if `split_fractions` is empty, or
-            if any sample is missing `group_key` or a stratify key.
-    """
     if not samples:
         raise ValueError("compute_grouped_stratified_split received zero samples.")
     if not split_fractions:
@@ -108,19 +63,16 @@ def compute_grouped_stratified_split(
 
     partition_names = list(split_fractions.keys())
     total_fraction = sum(split_fractions.values())
+    # normalize fractions just in case they dont add up to 1
     normalized_fractions = {k: v / total_fraction for k, v in split_fractions.items()}
 
-    # 1. Group samples by group_key, merged with any other sample that
-    #    shares an image_id (multiple fish in one photo must stay together
-    #    too -- see _union_find_groups), and compute each group's stratum
-    #    key from its FIRST sample (all samples in a group are assumed to
-    #    share strata, e.g. the same fish has one color morph).
+    # group samples by specimen/image and grab the stratum key from the first item in each group
     roots = _union_find_groups(samples, group_key)
     groups: dict[int, list[dict[str, Any]]] = defaultdict(list)
     for i, sample in enumerate(samples):
         groups[roots[i]].append(sample)
 
-    strata: dict[str, list[str]] = defaultdict(list)  # stratum_key -> [group_id, ...]
+    strata: dict[str, list[str]] = defaultdict(list)  # maps composite stratum key to group ids
     for group_id, group_samples in groups.items():
         first = group_samples[0]
         for stratify_key in stratify_keys:
@@ -129,14 +81,11 @@ def compute_grouped_stratified_split(
         stratum_key = "|".join(str(first[k]) for k in stratify_keys)
         strata[stratum_key].append(group_id)
 
-    # 2. Within each stratum, shuffle groups deterministically and cut into
-    #    partitions proportional to normalized_fractions. Using groups (not
-    #    raw samples) as the unit being cut is what keeps a specimen's
-    #    photos together.
+    # shuffle groups inside each Stratum and slice into partitons
     rng = random.Random(seed)
     partition_group_ids: dict[str, list[str]] = {name: [] for name in partition_names}
 
-    for stratum_key in sorted(strata.keys()):  # sorted: deterministic across platforms
+    for stratum_key in sorted(strata.keys()):  # sort keys so rng stays deterministic
         group_ids = list(strata[stratum_key])
         rng.shuffle(group_ids)
 
@@ -149,7 +98,7 @@ def compute_grouped_stratified_split(
             partition_group_ids[name].extend(group_ids[cursor:end])
             cursor = end
 
-    # 3. Expand group ids back to image ids.
+    # unpack group ids back into image_id lists
     partitions: dict[str, list[str]] = {name: [] for name in partition_names}
     for name, group_ids in partition_group_ids.items():
         for group_id in group_ids:
@@ -158,25 +107,19 @@ def compute_grouped_stratified_split(
     return partitions
 
 
+# sanity check that no image_id or group_key ended up in multiple splits
 def assert_no_group_leakage(partitions: dict[str, list[str]], samples: list[dict[str, Any]], group_key: str) -> None:
-    """Raises AssertionError if any image_id, or any group_key value,
-    appears in more than one partition.
-
-    Checked in two passes rather than one image_id->group dict, because an
-    image with more than one annotation (multiple fish in frame) has more
-    than one group_key value for the same image_id -- collapsing that into
-    a single dict entry (keyed by image_id) would silently hide a real
-    same-image leak behind whichever annotation happened to be seen last.
-    """
     image_id_to_partitions: dict[str, set[str]] = defaultdict(set)
     for partition_name, image_ids in partitions.items():
         for image_id in image_ids:
             image_id_to_partitions[image_id].add(partition_name)
 
+    # check image leakage first
     leaked_images = {img: p for img, p in image_id_to_partitions.items() if len(p) > 1}
     if leaked_images:
         raise AssertionError(f"image_id values split across partitions (leakage): {leaked_images}")
 
+    # now check if any specimen_id leaked across splits
     image_id_to_partition = {img: next(iter(p)) for img, p in image_id_to_partitions.items()}
     group_to_partitions: dict[str, set[str]] = defaultdict(set)
     for sample in samples:
@@ -190,25 +133,21 @@ def assert_no_group_leakage(partitions: dict[str, list[str]], samples: list[dict
         raise AssertionError(f"{group_key} values split across partitions (leakage): {leaked_groups}")
 
 
+# dump each split as a sorted json list of image ids
 def write_splits(splits_dir: str | Path, partitions: dict[str, list[str]]) -> None:
-    """Writes each partition to `<splits_dir>/<name>.json` as a sorted ID list."""
     splits_dir = Path(splits_dir)
     splits_dir.mkdir(parents=True, exist_ok=True)
     for name, image_ids in partitions.items():
         (splits_dir / f"{name}.json").write_text(json.dumps(sorted(image_ids), indent=2))
 
 
+# load precomputed split json files from disk
 def load_splits(splits_dir: str | Path, partition_names: list[str]) -> dict[str, list[str]]:
-    """Reads back the JSON ID lists written by `write_splits`.
-
-    Raises FileNotFoundError with a clear message if a split has not been
-    generated yet — splits are never silently regenerated at runtime
-    (Build Prompt v2 §5.1).
-    """
     splits_dir = Path(splits_dir)
     partitions = {}
     for name in partition_names:
         path = splits_dir / f"{name}.json"
+        # fail fast if the split file hasn't been generated yet
         if not path.is_file():
             raise FileNotFoundError(
                 f"Split file not found: {path}. Splits are computed once and stored on "
@@ -220,16 +159,10 @@ def load_splits(splits_dir: str | Path, partition_names: list[str]) -> dict[str,
     return partitions
 
 
+# get counts per split and stratum for logging and tables
 def composition_table(
     partitions: dict[str, list[str]], samples: list[dict[str, Any]], stratify_keys: list[str]
 ) -> list[dict[str, Any]]:
-    """Builds the split-composition table (counts per split x stratum) for
-    Chapter 3 of the manuscript (Build Prompt v2 §5.1).
-
-    Returns a list of rows, each a dict with keys "partition", one column
-    per `stratify_keys` entry (or "*" if not stratified within this row —
-    here every row is a single stratum combination), and "count".
-    """
     by_image_id = {str(s["image_id"]): s for s in samples}
     rows: list[dict[str, Any]] = []
     for partition_name, image_ids in partitions.items():
@@ -238,6 +171,7 @@ def composition_table(
             sample = by_image_id[image_id]
             key = tuple(str(sample[k]) for k in stratify_keys)
             counts[key] += 1
+        # pack counts into row dicts
         for key, count in sorted(counts.items()):
             row = {"partition": partition_name, "count": count}
             row.update(dict(zip(stratify_keys, key)))
@@ -245,15 +179,8 @@ def composition_table(
     return rows
 
 
+# cli entry point to generate and save the dataset splits from config
 def main() -> None:
-    """CLI: computes and writes the train/val/test split once, from config.
-
-        python -m training.splitting --ann data/annotations/annotations.json \\
-            --config training/configs/hrnet_w32.yaml
-
-    Refuses to overwrite an existing split unless `--force` is passed —
-    splits are meant to be computed once and then frozen (Build Prompt v2 §5.1).
-    """
     from training.utils.config import load_config
 
     parser = argparse.ArgumentParser(description=__doc__)
@@ -264,6 +191,7 @@ def main() -> None:
 
     cfg = load_config(args.config)
     splits_dir = Path(cfg["paths"]["splits_dir"])
+    # dont overwrite existing splits unless --force is passed
     if not args.force and any((splits_dir / f"{name}.json").exists() for name in cfg["dataset"]["splits"]):
         raise SystemExit(
             f"Split files already exist under {splits_dir}. Splits are frozen once written "
@@ -278,6 +206,7 @@ def main() -> None:
         split_fractions=cfg["dataset"]["splits"],
         seed=cfg["seed"],
     )
+    # verify no leakage before saving to disk
     assert_no_group_leakage(partitions, samples, cfg["dataset"]["group_by"])
     write_splits(splits_dir, partitions)
 

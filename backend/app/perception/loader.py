@@ -1,20 +1,4 @@
-"""Process-wide cached loader for the HRNet keypoint detector.
-
-Two things this module deliberately does NOT do:
-
-1. It does not silently pretend an untrained model is trained. If no
-   checkpoint is found at `settings.model_checkpoint_path`, the model is
-   still constructed and served — so the full pipeline can be demonstrated
-   end to end before training finishes — but `ModelBundle.trained` is
-   False and every downstream response is tagged accordingly. An untrained
-   HRNet emits essentially arbitrary keypoints; a demo that does not say so
-   on its face is a thesis-integrity problem, not a UI nicety.
-
-2. It does not reload the checkpoint per request. Constructing HRNet-W32
-   and reading its weights takes seconds; doing that inside a request
-   handler would make every upload look pathologically slow and would
-   thrash memory under concurrent requests.
-"""
+# cached loader for the hrnet keypoint model so we dont reload weights on every request and tracks if its actually trained
 
 from __future__ import annotations
 
@@ -34,9 +18,9 @@ _LOCK = threading.Lock()
 _BUNDLE: "ModelBundle | None" = None
 
 
+# holds the loaded model and metadata for tracking
 @dataclass
 class ModelBundle:
-    """A loaded detector plus provenance for the report's audit trail."""
 
     model: HRNetKeypointDetector
     device: str
@@ -45,6 +29,7 @@ class ModelBundle:
     checkpoint_epoch: int | None = None
     checkpoint_val_metric: float | None = None
 
+    # returns a quick string telling us if we are using real weights
     @property
     def status_note(self) -> str:
         if self.trained:
@@ -57,6 +42,7 @@ class ModelBundle:
         )
 
 
+# fallback to cpu if cuda is set in config but not actually availble
 def _resolve_device(requested: str) -> str:
     if requested.startswith("cuda") and not torch.cuda.is_available():
         logger.warning("device=%s requested but CUDA is unavailable; falling back to CPU.", requested)
@@ -64,8 +50,8 @@ def _resolve_device(requested: str) -> str:
     return requested
 
 
+# loads the hrnet bundle once and caches it in memory
 def load_model_bundle(force_reload: bool = False) -> ModelBundle:
-    """Returns the process-wide `ModelBundle`, constructing it on first call."""
     global _BUNDLE
     if _BUNDLE is not None and not force_reload:
         return _BUNDLE
@@ -84,9 +70,7 @@ def load_model_bundle(force_reload: bool = False) -> ModelBundle:
 
         if ckpt_path.is_file():
             state = torch.load(ckpt_path, map_location=device)
-            # training/train_hrnet.py writes {"model": ..., "epoch": ..., ...};
-            # tolerate a bare state_dict too, since a hand-exported checkpoint
-            # is a very likely thing to be handed this path.
+            # handle both full training dicts and raw state dicts just in case
             state_dict = state.get("model", state) if isinstance(state, dict) else state
             model.load_state_dict(state_dict)
             trained = True
@@ -113,8 +97,8 @@ def load_model_bundle(force_reload: bool = False) -> ModelBundle:
         return _BUNDLE
 
 
+# clears the cached model mostly for unit tests or Manual reloads
 def reset_model_bundle() -> None:
-    """Drops the cached bundle. Used by tests and by a future /admin/reload."""
     global _BUNDLE
     with _LOCK:
         _BUNDLE = None

@@ -1,35 +1,5 @@
-"""Self-contained HRNet-W32 backbone (Wang et al., 2020, "Deep High-Resolution
-Representation Learning for Visual Recognition").
-
-Build Prompt v2 §2 locks HRNet-W32 with ImageNet-pretrained weights loaded
-via `timm`. This module implements the architecture itself from first
-principles in plain PyTorch (no `timm` dependency for the architecture),
-because:
-
-1. Thesis code a panel may inspect should be legible on its own rather than
-   opaque inside a third-party model zoo.
-2. `timm` could not be installed in the environment this pipeline was
-   authored and unit-tested in (see training/README.md, "Known
-   limitations") — the architecture must be independently correct and
-   independently testable regardless of network access.
-
-`app/perception/hrnet.py` still *prefers* `timm`'s ImageNet-pretrained
-`hrnet_w32` when it is importable (`model.backbone_source: auto` in config),
-per the locked decision in Build Prompt v2 §2 — see that module's
-`build_backbone()`. This file is the fallback / offline-verifiable path, and
-is what actually ran in every test and dummy-data smoke run in this
-codebase. Whichever path is used, output shape and channel count are
-identical: `HRNetW32Backbone.out_channels == 480` at stride 4.
-
-Architecture (fixed to the W32 channel config; see `_STAGE_CHANNELS`):
-
-    stem            : 2x stride-2 3x3 conv, 3 -> 64 -> 64      (H/4, W/4)
-    stage 1         : 4x Bottleneck, 64 -> 256, 1 branch       (H/4)
-    stage 2         : 1 module,  2 branches [32, 64]           (H/4, H/8)
-    stage 3         : 4 modules, 3 branches [32, 64, 128]      (H/4, H/8, H/16)
-    stage 4         : 3 modules, 4 branches [32, 64, 128, 256] (H/4, H/8, H/16, H/32)
-    final fuse      : upsample branches 2-4 to H/4 and concat  -> 480 channels @ H/4
-"""
+# standalone hrnet-w32 backbone in plain pytorch for offline testing and fallback when timm isnt availble
+# outputs a fused 480 channel feature map at stride 4 (H/4, W/4) matching the standard w32 config
 
 from __future__ import annotations
 
@@ -48,11 +18,12 @@ _BN_MOMENTUM = 0.1
 
 
 class BasicBlock(nn.Module):
-    """Standard 2x(3x3 conv + BN + ReLU) residual block, expansion 1."""
+    # standard 2x 3x3 conv residual block with expansion 1
 
     expansion = 1
 
     def __init__(self, in_ch: int, out_ch: int, stride: int = 1) -> None:
+        # init conv layers and optional 1x1 downsample shortcut
         super().__init__()
         self.conv1 = nn.Conv2d(in_ch, out_ch, 3, stride=stride, padding=1, bias=False)
         self.bn1 = nn.BatchNorm2d(out_ch, momentum=_BN_MOMENTUM)
@@ -69,6 +40,7 @@ class BasicBlock(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # apply convs and add residual connection
         residual = x if self.downsample is None else self.downsample(x)
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.bn2(self.conv2(out))
@@ -76,11 +48,12 @@ class BasicBlock(nn.Module):
 
 
 class Bottleneck(nn.Module):
-    """1x1 -> 3x3 -> 1x1 residual block, expansion 4. Used only in stage 1."""
+    # 1x1 -> 3x3 -> 1x1 residual block with expansion 4 used only in stage 1
 
     expansion = 4
 
     def __init__(self, in_ch: int, mid_ch: int, stride: int = 1) -> None:
+        # setup bottleneck convs and projection shortcut if dims change
         super().__init__()
         out_ch = mid_ch * self.expansion
         self.conv1 = nn.Conv2d(in_ch, mid_ch, 1, bias=False)
@@ -100,6 +73,7 @@ class Bottleneck(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # run bottleneck forward pass
         residual = x if self.downsample is None else self.downsample(x)
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.relu(self.bn2(self.conv2(out)))
@@ -108,22 +82,17 @@ class Bottleneck(nn.Module):
 
 
 def _make_branch(in_ch: int, out_ch: int, num_blocks: int) -> nn.Sequential:
+    # stack basic blocks for a single resolution branch
     layers = [BasicBlock(in_ch, out_ch)]
     layers += [BasicBlock(out_ch, out_ch) for _ in range(num_blocks - 1)]
     return nn.Sequential(*layers)
 
 
 class HighResolutionModule(nn.Module):
-    """One HRNet module: parallel per-branch conv stacks, then a full fuse.
-
-    After the per-branch blocks, branch `i`'s output is
-    `relu(sum_j fuse[i][j](branch_j_output))`, where `fuse[i][j]` is: identity
-    if `i == j`, a 1x1-conv + bilinear-upsample if `j > i` (lower resolution
-    branch upsampled to branch i), or a stack of stride-2 3x3 convs if
-    `j < i` (higher resolution branch downsampled to branch i).
-    """
+    # runs parallel conv branches and fuses multi-scale features across resolutions
 
     def __init__(self, num_branches: int, channels: list[int], num_blocks: int) -> None:
+        # create per-branch blocks and cross-branch Fusion layers
         super().__init__()
         if len(channels) != num_branches:
             raise ValueError("channels must have one entry per branch")
@@ -137,12 +106,13 @@ class HighResolutionModule(nn.Module):
         self.relu = nn.ReLU(inplace=True)
 
     def _make_fuse_row(self, target_idx: int, channels: list[int]) -> nn.ModuleList:
+        # builds fusion ops to align all source branches to target_idx resolution
         row = nn.ModuleList()
         for src_idx in range(self.num_branches):
             if src_idx == target_idx:
                 row.append(nn.Identity())
             elif src_idx > target_idx:
-                # Lower-resolution source -> upsample to target resolution.
+                # lower res source gets 1x1 conv here and bilinear upsample in forward
                 row.append(
                     nn.Sequential(
                         nn.Conv2d(channels[src_idx], channels[target_idx], 1, bias=False),
@@ -150,7 +120,7 @@ class HighResolutionModule(nn.Module):
                     )
                 )
             else:
-                # Higher-resolution source -> downsample (stride-2 convs) to target resolution.
+                # higher res source downsamples to target res using stride 2 convs
                 steps = []
                 cur_ch = channels[src_idx]
                 num_steps = target_idx - src_idx
@@ -165,6 +135,7 @@ class HighResolutionModule(nn.Module):
         return row
 
     def forward(self, xs: list[torch.Tensor]) -> list[torch.Tensor]:
+        # run each branch then sum and fuse all resolutions together
         branch_outs = [self.branches[i](xs[i]) for i in range(self.num_branches)]
         fused: list[torch.Tensor] = []
         for target_idx in range(self.num_branches):
@@ -180,12 +151,7 @@ class HighResolutionModule(nn.Module):
 
 
 def _make_transition_layer(prev_channels: list[int], cur_channels: list[int]) -> nn.ModuleList:
-    """Builds the transition between two stages with different branch counts/widths.
-
-    Branches that existed before are reshaped to their new channel width (or
-    left as identity if unchanged); any newly introduced branch is derived by
-    stride-2 downsampling the last (lowest-resolution) previous branch.
-    """
+    # transitions between stages and spawns a new lower-res branch via stride 2 conv
     num_prev, num_cur = len(prev_channels), len(cur_channels)
     transitions = nn.ModuleList()
     for i in range(num_cur):
@@ -212,6 +178,7 @@ def _make_transition_layer(prev_channels: list[int], cur_channels: list[int]) ->
 
 
 def _apply_transition(transitions: nn.ModuleList, prev_outputs: list[torch.Tensor]) -> list[torch.Tensor]:
+    # pass previous stage outputs through transition layers to get new branch inputs
     num_prev = len(prev_outputs)
     return [
         transitions[i](prev_outputs[i] if i < num_prev else prev_outputs[-1])
@@ -220,18 +187,12 @@ def _apply_transition(transitions: nn.ModuleList, prev_outputs: list[torch.Tenso
 
 
 class HRNetW32Backbone(nn.Module):
-    """Full HRNet-W32 backbone: stem -> stage1 -> stage2 -> stage3 -> stage4 -> fuse.
-
-    `forward` returns a single (B, 480, H/4, W/4) feature map, matching the
-    "fused high-resolution feature map F" in Build Prompt v2 §6. For a
-    384x384 input this is (B, 480, 96, 96), i.e. exactly the heatmap
-    resolution the spec requires — the heatmap head is a plain 1x1 conv on
-    top of this.
-    """
+    # full hrnet-w32 backbone returning a fused (B, 480, H/4, W/4) feature map
 
     out_channels = sum(_STAGE_CHANNELS["stage4"])  # 32 + 64 + 128 + 256 = 480
 
     def __init__(self, in_channels: int = 3) -> None:
+        # build stem, 4 stages, and transition layers
         super().__init__()
 
         self.stem = nn.Sequential(
@@ -276,6 +237,7 @@ class HRNetW32Backbone(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # run through stem and stages then upsmple everything to H/4 and concat
         x = self.stem(x)
         x = self.stage1(x)
 

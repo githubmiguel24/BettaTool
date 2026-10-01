@@ -1,19 +1,4 @@
-"""COCO-Keypoints dataset loader for the Betta perceptual tier.
-
-Build Prompt v2 §5.1-§5.3: loads a Roboflow/CVAT COCO Keypoints export
-(`training/make_dummy_dataset.py` emits the same schema for the synthetic
-dataset), validates every sample strictly at load time (§1 point 6 — fail
-loudly, never silently skip malformed samples), crops to `fish_box` with
-configurable padding, letterboxes to `image.input_size`, and returns
-crop-space targets ready for the loss functions in `training/losses/`.
-
-Real-data annotation loading is now implemented (superseding the
-`NotImplementedError` stub this file used to raise) — but it has only been
-exercised against the synthetic dummy dataset in this session, never
-against an actual Roboflow export, because none exists yet. See
-training/README.md, "Known limitations", before trusting this against real
-data without re-checking it yourself.
-"""
+# COCO keypoint dataset loader and validator for betta fish crops and heatmaps
 
 from __future__ import annotations
 
@@ -26,11 +11,8 @@ from PIL import Image
 
 try:
     from torch.utils.data import Dataset
-except ImportError:  # pragma: no cover - exercised only where torch is absent
-    # Falling back to `object` keeps this module importable (and its pure
-    # numpy/PIL logic testable) even without torch installed. Instantiating
-    # BettaKeypointDataset without torch will still fail, inside
-    # __getitem__, with a clear ImportError rather than at import time.
+except ImportError:  # pragma: no cover
+    # fallback to object so we can still test numpy/PIL logic without torch installed
     Dataset = object  # type: ignore[assignment, misc]
 
 from app.perception.geometry import AffineTransform, bbox_crop_affine, crop_space_to_heatmap_space, letterbox_affine
@@ -38,29 +20,20 @@ from app.perception.keypoints import MASKED_FLAGS, NUM_KEYPOINTS, VISIBLE_FLAGS,
 from training.targets import render_all_targets
 
 
+# custom error for broken or malformed annotation records
 class AnnotationValidationError(ValueError):
-    """Raised when an annotation file contains malformed samples.
-
-    `training/validate_annotations.py` catches this per-sample to build its
-    report; `BettaKeypointDataset.__init__` lets it propagate (fail loudly —
-    Build Prompt v2 §1 point 6), so a bad annotation file never silently
-    yields a shorter-than-expected dataset.
-    """
+    pass
 
 
+# checks a single coco annotation entry and returns a list of any issues found
 def _validate_sample(sample: dict[str, Any], images_by_id: dict[str, dict[str, Any]], images_dir: Path) -> list[str]:
-    """Returns a list of human-readable problem descriptions for one COCO
-    annotation record (empty list = valid). Never raises itself — the
-    caller decides whether to collect-and-report (validate_annotations.py)
-    or fail immediately (BettaKeypointDataset).
-    """
     problems: list[str] = []
     image_id = str(sample.get("image_id", "<missing image_id>"))
 
     image_meta = images_by_id.get(image_id)
     if image_meta is None:
         problems.append(f"image_id {image_id!r} has no matching entry in images[]")
-        return problems  # nothing further can be checked without image size
+        return problems  # cant check bounds without image metadata
 
     image_path = images_dir / image_meta["file_name"]
     if not image_path.is_file():
@@ -74,6 +47,7 @@ def _validate_sample(sample: dict[str, Any], images_by_id: dict[str, dict[str, A
         )
         return problems
 
+    # verify keypoint visibility flags and make sure visible points stay inside image bounds
     width, height = image_meta.get("width"), image_meta.get("height")
     for i in range(NUM_KEYPOINTS):
         x, y, v = keypoints[3 * i], keypoints[3 * i + 1], keypoints[3 * i + 2]
@@ -99,18 +73,8 @@ def _validate_sample(sample: dict[str, Any], images_by_id: dict[str, dict[str, A
     return problems
 
 
+# loads the coco json file and raises immediately on the first bad sample
 def load_and_validate_annotations(annotations_path: str | Path, images_dir: str | Path) -> list[dict[str, Any]]:
-    """Loads a COCO Keypoints JSON file, validating every record.
-
-    Raises:
-        AnnotationValidationError: on the FIRST malformed sample, naming
-            every problem found with that sample (and, for a fatal
-            structural fault, only that fault). Fails loudly rather than
-            skipping bad samples (Build Prompt v2 §1 point 6) — use
-            `training/validate_annotations.py` first to see a full report
-            across ALL samples before fixing and re-running this loader.
-        FileNotFoundError: if the file does not exist.
-    """
     annotations_path = Path(annotations_path)
     images_dir = Path(images_dir)
     if not annotations_path.is_file():
@@ -122,10 +86,7 @@ def load_and_validate_annotations(annotations_path: str | Path, images_dir: str 
 
     images_by_id = {str(img["id"]): img for img in coco["images"]}
 
-    # NOTE: multiple annotations CAN legitimately share one image_id -- an
-    # image with more than one fish in it (a catalog/comparison photo) has
-    # one annotation per fish, all pointing at the same image_id. What must
-    # never repeat is the ANNOTATION's own id (each fish's own record).
+    # multiple fish can share one image_id, so we check uniqueness on the annotation id instead
     seen_annotation_ids: set[str] = set()
     for sample in coco["annotations"]:
         image_id = str(sample.get("image_id", ""))
@@ -143,23 +104,8 @@ def load_and_validate_annotations(annotations_path: str | Path, images_dir: str 
     return coco["annotations"]
 
 
+# runs validation across the whole dataset without raising so we can see all errors at once
 def build_validation_report(annotations_path: str | Path, images_dir: str | Path) -> dict[str, Any]:
-    """Collects validation problems across EVERY sample (never raises), for
-    `training/validate_annotations.py`'s CLI report (Build Prompt v2 §5.4).
-
-    Unlike `load_and_validate_annotations` (which fails loudly on the first
-    bad sample, by design, for the training path), this function is meant
-    to show a human everything that is wrong in one pass.
-
-    Returns a dict with:
-        n_images, n_annotations       : int
-        problems_by_image             : {image_id: [problem, ...]}, only for
-                                         images with at least one problem
-        duplicate_image_ids           : list[str]
-        visibility_histogram          : {flag: count}, across ALL keypoints
-        per_keypoint_visibility       : {keypoint_index: {flag: count}}
-        missing_fish_box_count        : int
-    """
     annotations_path = Path(annotations_path)
     images_dir = Path(images_dir)
     coco = json.loads(annotations_path.read_text())
@@ -172,6 +118,7 @@ def build_validation_report(annotations_path: str | Path, images_dir: str | Path
     per_keypoint_visibility: dict[int, dict[int, int]] = {i: {2: 0, 1: 0, 0: 0, -1: 0} for i in range(NUM_KEYPOINTS)}
     missing_fish_box_count = 0
 
+    # collect stats and validation issues for every sample in the file
     for sample in coco.get("annotations", []):
         image_id = str(sample.get("image_id", "<missing>"))
         if image_id in seen_ids:
@@ -204,30 +151,10 @@ def build_validation_report(annotations_path: str | Path, images_dir: str | Path
     }
 
 
+# pytorch dataset that crops around each fish, letterboxes to input_size, and builds target heatmaps
 class BettaKeypointDataset(Dataset):
-    """COCO-Keypoints dataset producing crop-space training samples.
 
-    Each `__getitem__` returns a dict:
-        image            : (3, input_size, input_size) float32 tensor,
-                            ImageNet-normalized (torch tensor; converted from
-                            an (H, W, 3) uint8 array by `training/transforms.py`).
-        keypoints_crop   : (K, 2) float32, ground-truth (x, y) in crop space.
-        visibility       : (K,) int64, raw flag (2/1/0/-1).
-        visibility_mask  : (K,) float32, 1.0 for flags 2/1, 0.0 for 0/-1.
-        heatmap_target   : (K, heatmap_size, heatmap_size) float32.
-        affine_crop_to_orig : the (A, b) mapping crop-space back to
-                            original-image space, needed to report
-                            predictions in original pixels
-                            (`app/perception/geometry.py`).
-        image_id         : str.
-
-    Augmentation (train split only) is applied by `transform_fn`, an
-    Albumentations-backed callable from `training/transforms.py` — this
-    class does not import albumentations directly, so it stays importable
-    (and independently testable) even where albumentations is not
-    installed, as long as a caller does not actually request augmentation.
-    """
-
+    # loads annotations, filters by split_image_ids, and sets up normalization params
     def __init__(
         self,
         images_dir: str | Path,
@@ -268,16 +195,13 @@ class BettaKeypointDataset(Dataset):
                 f"annotation file (first few: {sorted(missing)[:5]})"
             )
 
+    # returns total number of samples in this split
     def __len__(self) -> int:
         return len(self.samples)
 
+    # crops the fish bounding box with padding, letterboxes it, and maps keypoints to crop space
     def _load_crop(self, sample: dict[str, Any]) -> tuple[np.ndarray, np.ndarray, np.ndarray, AffineTransform]:
-        """Returns (crop_image_uint8_HWC, keypoints_crop, visibility_flags, affine_orig_to_crop)."""
-        # Cache key is the ANNOTATION's own id, not image_id: an image with
-        # multiple fish (multiple annotations sharing one image_id) has a
-        # different fish_box -- and therefore a different crop -- per
-        # annotation. Keying the cache by image_id would return fish #1's
-        # cached crop for fish #2 and #3 of the same photo, silently.
+        # key by annotation id instead of image_id in case one photo has multiple fish
         cache_key = str(sample["id"])
         if self.cache_crops_in_ram and cache_key in self._crop_cache:
             return self._crop_cache[cache_key]
@@ -301,8 +225,7 @@ class BettaKeypointDataset(Dataset):
             cropped_im = im.crop(crop_box)
 
         letterbox_t = letterbox_affine(cropped_im.width, cropped_im.height, self.input_size)
-        # Recompute crop_affine's b to match the ACTUAL (clamped-to-image) crop box used,
-        # rather than the unclamped padded box, so the affine and the pixels agree exactly.
+        # recompute offset using the clamped crop box so the affine matches the actual pixels
         crop_affine = AffineTransform(A=np.eye(2), b=-np.array([crop_box[0], crop_box[1]], dtype=np.float64))
         full_affine = crop_affine.compose(letterbox_t)
 
@@ -321,9 +244,11 @@ class BettaKeypointDataset(Dataset):
             self._crop_cache[cache_key] = result
         return result
 
+    # helper to grab image metadata dict for a sample
     def _image_meta(self, sample: dict[str, Any]) -> dict[str, Any]:
         return self.images_by_id[str(sample["image_id"])]
 
+    # fetches a sample, runs augmentations if enabled, and converts everything to torch tensors
     def __getitem__(self, index: int) -> dict[str, Any]:
         sample = self.samples[index]
         crop_image, keypoints_crop, visibility, full_affine = self._load_crop(sample)
@@ -342,7 +267,7 @@ class BettaKeypointDataset(Dataset):
             self.heatmap_size, keypoints_heatmap_space, self.heatmap_target_sigma_px, visible
         )
 
-        import torch  # local import: keeps this module importable without torch for pure-logic tests
+        import torch  # local import so pure logic tests can still run without torch
 
         return {
             "image": torch.from_numpy(image_chw).float(),

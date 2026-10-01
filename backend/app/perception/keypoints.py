@@ -1,11 +1,9 @@
-"""Keypoint mappings for the betta fish model."""
+# keypoint defs and skeleton setup for the betta fish pose model
 
 from enum import Enum, IntEnum
 
 
-class Keypoint(IntEnum):
-    # indices for the keypoint array
-
+class Keypoint(IntEnum):  # array indices for each landmark
     SNOUT_TIP = 0
     EYE_CENTER = 1
     DORSAL_FIN_BASE_ANTERIOR = 2
@@ -24,7 +22,7 @@ class Keypoint(IntEnum):
 NUM_KEYPOINTS = len(Keypoint)
 KEYPOINT_NAMES = [kp.name for kp in Keypoint]
 
-# short labels for yaml configs and coco export
+# short names used for yaml configs and exporting to coco
 KEYPOINT_SHORT_CODES: list[str] = [
     "snout_tip",
     "eye_center",
@@ -41,15 +39,15 @@ KEYPOINT_SHORT_CODES: list[str] = [
     "anal_tip",
 ]
 
-class KeypointGroup(str, Enum):
-    # anatomical part each landmark belongs to, for color-coding in the UI
+
+class KeypointGroup(str, Enum):  # body parts for UI color coding
     HEAD = "head"
     DORSAL_FIN = "dorsal_fin"
     CAUDAL_FIN = "caudal_fin"
     ANAL_FIN = "anal_fin"
 
 
-# index-aligned with the Keypoint enum above
+# must match the order in Keypoint enum
 KEYPOINT_GROUPS: list[str] = [
     KeypointGroup.HEAD,
     KeypointGroup.HEAD,
@@ -70,26 +68,24 @@ assert len(KEYPOINT_GROUPS) == NUM_KEYPOINTS, (
     f"defines {NUM_KEYPOINTS} landmarks."
 )
 
-# connection lines for debug viz
+# point pairs to draw the skeleton in debug view
 SKELETON_EDGES: list[tuple[int, int]] = [
     (0, 1), (1, 2), (2, 3), (3, 4), (3, 5), (5, 6), (5, 7),
     (6, 8), (7, 9), (8, 9), (6, 10), (10, 11), (11, 12), (0, 12),
 ]
 
-# identity map bc lateral view has no left/right pairs, do NOT swap indices
+# side view has no left or right symmetry so dont swap indices on flip
 FLIP_MAP: list[int] = list(range(NUM_KEYPOINTS))
 assert FLIP_MAP == list(range(NUM_KEYPOINTS)), "dont mess with this flip map"
 
 
-class Visibility(IntEnum):
-    # custom vis flags so we can tell oof vs occluded apart
-
+class Visibility(IntEnum):  # custom flags to separate out of frame from occluded
     CLEAR = 2
     AMBIGUOUS = 1
     OCCLUDED = 0
     OUT_OF_FRAME = -1
 
 
-# mask out stuff that isnt actually visible in the loss
+# ignore hidden points when calculating loss
 VISIBLE_FLAGS = frozenset({Visibility.CLEAR, Visibility.AMBIGUOUS})
 MASKED_FLAGS = frozenset({Visibility.OCCLUDED, Visibility.OUT_OF_FRAME})
