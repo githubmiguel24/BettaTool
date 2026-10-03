@@ -15,6 +15,7 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom";
 import KeypointLayers from "./KeypointOverlay.jsx";
 import { colorForGroup } from "../data/keypointGroups.js";
+import { useImageSampler } from "../lib/adaptiveColor.js";
 
 const ZOOM_MS = 380;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
@@ -47,6 +48,7 @@ function AnnotatedImage({
   imageUrl,
   report,
   highlightIndices,
+  criterionKey,
   showKeypoints,
   showHeatmap,
   interactive = false,
@@ -54,6 +56,7 @@ function AnnotatedImage({
   const w = report.image_width;
   const h = report.image_height;
   const idPrefix = useId().replace(/:/g, "");
+  const sampler = useImageSampler(imageUrl, w, h);
   const svgRef = useRef(null);
   const dragRef = useRef(null);
   const rafRef = useRef(0);
@@ -168,6 +171,8 @@ function AnnotatedImage({
         showKeypoints={showKeypoints}
         showHeatmap={showHeatmap}
         highlightIndices={highlightIndices}
+        criterionKey={criterionKey}
+        sampler={sampler}
       />
     </svg>
   );
@@ -319,6 +324,7 @@ function ImageStage({
   report,
   loading = false,
   highlightIndices = null,
+  criterionKey = null,
   showKeypoints,
   setShowKeypoints,
   showHeatmap,
@@ -327,7 +333,7 @@ function ImageStage({
   const [expanded, setExpanded] = useState(false);
   const closeLightbox = useCallback(() => setExpanded(false), []);
 
-  const viewerProps = { imageUrl, report, highlightIndices, showKeypoints, showHeatmap };
+  const viewerProps = { imageUrl, report, highlightIndices, criterionKey, showKeypoints, showHeatmap };
 
   return (
     <div className="relative flex aspect-[4/3] w-full items-center justify-center overflow-hidden rounded-xl border border-slate-200 bg-slate-50">

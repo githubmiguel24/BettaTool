@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
+import KeypointSummary from "../../components/KeypointSummary.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
@@ -164,23 +165,19 @@ function ReportView() {
               alt="Analyzed betta"
               report={report}
               highlightIndices={highlightIndices}
+              criterionKey={selectedCriterion}
               showKeypoints={showKeypoints}
               setShowKeypoints={setShowKeypoints}
               showHeatmap={showHeatmap}
               setShowHeatmap={setShowHeatmap}
             />
 
-            <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
-              {Object.entries(GROUP_LABELS).map(([group, label]) => (
-                <div key={group} className="flex items-center gap-1.5">
-                  <span
-                    className="h-2 w-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: colorForGroup(group) }}
-                  />
-                  {label}
-                </div>
-              ))}
-            </div>
+            <KeypointSummary
+              keypoints={report.keypoints}
+              imageUrl={report.imageUrl}
+              width={report.image_width}
+              height={report.image_height}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-5 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">

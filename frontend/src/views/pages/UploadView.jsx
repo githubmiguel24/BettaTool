@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
+import KeypointSummary from "../../components/KeypointSummary.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
@@ -193,6 +194,7 @@ function UploadView() {
                 report={report}
                 loading={status === "loading"}
                 highlightIndices={highlightIndices}
+                criterionKey={selectedCriterion}
                 showKeypoints={showKeypoints}
                 setShowKeypoints={setShowKeypoints}
                 showHeatmap={showHeatmap}
@@ -232,39 +234,12 @@ function UploadView() {
 
             {/* Landmark legend, driven by the API response rather than a
                 hardcoded list that can drift from the model's schema. */}
-            {report?.keypoints?.length > 0 && (
-              <>
-                <div className="mt-6 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-400">
-                  {Object.entries(GROUP_LABELS).map(([group, label]) => (
-                    <div key={group} className="flex items-center gap-1.5">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: colorForGroup(group) }}
-                      />
-                      {label}
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-x-5 gap-y-2 text-sm text-slate-500">
-                  {report.keypoints.map((kp) => (
-                    <div key={kp.index} className="flex items-center gap-2.5">
-                      <span
-                        className="h-2 w-2 shrink-0 rounded-full"
-                        style={{
-                          backgroundColor: kp.low_visibility
-                            ? "#94a3b8"
-                            : colorForGroup(kp.group),
-                        }}
-                      />
-                      <span className="truncate">{kp.label}</span>
-                      <span className="ml-auto shrink-0 tabular-nums text-xs text-slate-400">
-                        &plusmn;{Math.max(kp.sigma_x, kp.sigma_y).toFixed(1)}px
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+            <KeypointSummary
+              keypoints={report?.keypoints}
+              imageUrl={image?.url}
+              width={report?.image_width}
+              height={report?.image_height}
+            />
           </div>
 
           <div className="grid grid-cols-2 gap-5 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
