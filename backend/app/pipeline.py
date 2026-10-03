@@ -8,6 +8,7 @@ import numpy as np
 import torch
 
 from app.perception.geometry import AffineTransform
+from app.analytical.calibration import load_uncertainty_scales
 from app.analytical.gum_propagation import (
     assemble_block_covariance,
     combined_uncertainty,
@@ -35,10 +36,18 @@ class PipelineOutput:
 
 class AssessmentPipeline:
     # sets up model on device and sets cutoff for keypoint visibility
-    def __init__(self, model: HRNetKeypointDetector, device: str = "cpu", visibility_threshold: float = 0.5) -> None:
+    def __init__(
+        self,
+        model: HRNetKeypointDetector,
+        device: str = "cpu",
+        visibility_threshold: float = 0.5,
+        uncertainty_scales: dict[str, float] | None = None,
+    ) -> None:
         self.model = model.to(device).eval()
         self.device = device
         self.visibility_threshold = visibility_threshold
+        # per-criterion post-hoc U scale; None -> read calibration.json if present, {} -> all 1.0
+        self.uncertainty_scales = load_uncertainty_scales() if uncertainty_scales is None else uncertainty_scales
 
     @torch.no_grad()
     def analyze(self, image_tensor: torch.Tensor) -> list[CriterionResult]:
@@ -89,7 +98,7 @@ class AssessmentPipeline:
             measurement = measurement_fn(flat_keypoints)
 
             u_c = combined_uncertainty(jacobian, block_covariance)
-            uncertainty = expanded_uncertainty(u_c)
+            uncertainty = expanded_uncertainty(u_c) * self.uncertainty_scales.get(criterion_key, 1.0)
 
             threshold = CRITERION_THRESHOLDS[criterion_key]
             tsi = compute_tsi(measurement, threshold, jacobian)

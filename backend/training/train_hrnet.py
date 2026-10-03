@@ -19,6 +19,7 @@ from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
 from training.dataset import BettaKeypointDataset
 from training.losses import gaussian_nll_loss, heatmap_mse_loss, visibility_bce_loss
+from training.metrics.calibration import gaussian_nll_numpy, mahalanobis_coverage
 from training.splitting import load_splits
 from training.transforms import build_eval_transform, build_train_transform
 from training.utils.config import load_config
@@ -129,6 +130,7 @@ def run_stage(
     )
 
     best_val_metric = float("inf")
+    best_val_nll = float("inf")  # stage 2 only: lowest val NLL seen, saved as best_nll.pt
     epochs_without_improvement = 0
     checkpoints_dir = run_dir / "checkpoints"
 
@@ -217,10 +219,15 @@ def run_stage(
             "train_loss_total": running["total"] / n,
             "val_radial_error_px": val_metrics["mean_radial_error_px"],
             "val_mean_sigma_px": val_metrics["mean_sigma_px"],
+            "val_nll": val_metrics.get("nll", ""),
+            "val_coverage_68": val_metrics.get("coverage_68", ""),
+            "val_coverage_95": val_metrics.get("coverage_95", ""),
             "epoch_seconds": time.time() - epoch_start,
         }
         csv_logger.log(row)
         logger.info("=== stage=%d epoch=%d val_radial_error_px=%.3f mean_sigma_px=%.3f ===", stage, epoch, row["val_radial_error_px"], row["val_mean_sigma_px"])
+        if "nll" in val_metrics:
+            logger.info("    val_nll=%.3f coverage68=%.3f coverage95=%.3f (crop space)", row["val_nll"], row["val_coverage_68"], row["val_coverage_95"])
 
         _check_covariance_collapse(row["val_mean_sigma_px"], row["val_radial_error_px"], cfg)
 
@@ -228,6 +235,13 @@ def run_stage(
             {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "scaler": scaler.state_dict(), "epoch": epoch, "stage": stage},
             checkpoints_dir / "last.pt",
         )
+
+        # best_nll.pt: best val NLL (stage 2 only, where the covariance head is trained); opt-in via checkpoint.keep
+        if stage >= 2 and "nll" in val_metrics and "best_nll" in cfg["training"]["checkpoint"]["keep"]:
+            if val_metrics["nll"] < best_val_nll:
+                best_val_nll = val_metrics["nll"]
+                torch.save({"model": model.state_dict(), "epoch": epoch, "stage": stage, "val_nll": best_val_nll}, checkpoints_dir / "best_nll.pt")
+                logger.info("New best val NLL %.3f at stage=%d epoch=%d -> best_nll.pt", best_val_nll, stage, epoch)
 
         early_cfg = cfg["training"]["early_stopping"]
         if stage >= early_cfg["active_from_stage"]:
@@ -260,6 +274,8 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
     # fast validation pass per epoch with TTA disabled for speed
     model.eval()
     total_error, total_sigma, n = 0.0, 0.0, 0
+    log_calibration = cfg["logging"].get("log_val_calibration", False)
+    all_mu, all_cov, all_gt, all_vis = [], [], [], []
     for batch in loader:
         image = batch["image"].to(device)
         gt_crop = batch["keypoints_crop"].to(device)
@@ -280,8 +296,21 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
         total_sigma += masked_sigma.item() * bs
         n += bs
 
+        if log_calibration:
+            all_mu.append(mu_crop.float().cpu().numpy())
+            all_cov.append(covariances.float().cpu().numpy())
+            all_gt.append(gt_crop.float().cpu().numpy())
+            all_vis.append(visibility_mask.cpu().numpy())
+
     n = max(1, n)
-    return {"mean_radial_error_px": total_error / n, "mean_sigma_px": total_sigma / n}
+    metrics = {"mean_radial_error_px": total_error / n, "mean_sigma_px": total_sigma / n}
+    if log_calibration:
+        # crop-space (384 px) Gaussian NLL and keypoint coverage, same functions as training/evaluate.py
+        mu, cov, gt, vis = (np.concatenate(a) for a in (all_mu, all_cov, all_gt, all_vis))
+        metrics["nll"] = gaussian_nll_numpy(mu, cov, gt, vis)
+        for level in cfg["evaluation"]["coverage_levels"]:
+            metrics[f"coverage_{round(level * 100)}"] = mahalanobis_coverage(mu, cov, gt, vis, level)["empirical_coverage"]
+    return metrics
 
 
 def main() -> None:
