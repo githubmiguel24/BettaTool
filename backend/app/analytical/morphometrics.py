@@ -1,82 +1,34 @@
+# computes IBC morphometric ratios and angles from keypoint coordinates
 from __future__ import annotations
 
 import numpy as np
 
 from app.perception.keypoints import Keypoint
 
-# maps flat keypint vectors to the 6 ibc Criteria
-
 
 def _point(x: np.ndarray, kp: Keypoint) -> np.ndarray:
+    # extract x,y coords for a specific keypoint
     return x[2 * kp : 2 * kp + 2]
 
 
 def _distance(x: np.ndarray, a: Keypoint, b: Keypoint) -> float:
+    # euclidean distance between two keypoints
     return float(np.linalg.norm(_point(x, a) - _point(x, b)))
 
 
 def _peduncle_mid(x: np.ndarray) -> np.ndarray:
-    """Midpoint of the caudal peduncle: mean(peduncle_top, peduncle_bottom).
-
-    This is the anatomical origin of the caudal fin and the posterior end of
-    body length, per training/configs/base.yaml
-    (`body_length_landmarks: [snout_tip, peduncle_midpoint]`) and
-    training/metrics/localization.py's `body_length`, both of which already
-    use the midpoint. An earlier version of this module used
-    CAUDAL_PEDUNCLE_TOP alone, disagreeing with both.
-
-    Using the midpoint also halves the variance the peduncle contributes:
-    averaging two independently-predicted landmarks is more precise than
-    relying on either one.
-    """
+    # midpoint of caudal peduncle for fin vertex origin
     return 0.5 * (_point(x, Keypoint.CAUDAL_PEDUNCLE_TOP) + _point(x, Keypoint.CAUDAL_PEDUNCLE_BOTTOM))
 
 
 def _signed_angle_deg(axis: np.ndarray, v: np.ndarray) -> float:
-    """Signed angle in degrees from `axis` to `v`, in (-180, 180]."""
+    # signed angle in degrees from axis vector to v
     cross = axis[0] * v[1] - axis[1] * v[0]
     return float(np.degrees(np.arctan2(cross, float(np.dot(axis, v)))))
 
 
 def caudal_spread_angle(x: np.ndarray) -> float:
-    """Caudal spread angle in degrees, measured AT THE CAUDAL PEDUNCLE.
-
-    The IBC caudal spread is the angle the caudal fin sweeps through as seen
-    from where it attaches to the body, so the vertex is the caudal peduncle
-    midpoint and the rays run out to the upper and lower fin tips. A perfect
-    Halfmoon reads exactly 180.
-
-    Two things this formulation deliberately avoids:
-
-    1. WRONG VERTEX. An earlier version put the vertex at CAUDAL_FIN_CENTER
-       (the rearmost point of the fin's outer margin) rather than the
-       peduncle. That measures the curvature of the trailing edge, not the
-       spread: a geometrically perfect Halfmoon scored 90 degrees, which
-       falls in the "Disqualify" band (<=165) in
-       app/decisional/ibc_standards.py -- i.e. every fish failed.
-
-    2. arccos FOLDING AT 180. `arccos` returns an UNSIGNED angle capped at
-       180 degrees, so an over-spread tail reads the same as an equally
-       under-spread one and can never exceed 180. That makes the bands above
-       180 in ibc_standards.py (Slight Fault 181-194, Major Fault 195-209,
-       Disqualify >=210) unreachable. Measuring each tip's SIGNED angle
-       about the fin's mid-ray (peduncle midpoint -> caudal fin centre) and
-       summing keeps the measurement continuous through 180 and lets it
-       exceed 180, so over-spread is representable and the function stays
-       smoothly differentiable for GUM propagation across the whole decision
-       boundary (verified: ||J|| ~= 1.146 deg/px and continuous at 180).
-
-    3. ORIENTATION-DEPENDENT SIGN. `upper - lower` is a SIGNED sum, so its
-       magnitude is correct but its sign depends on which way the fish
-       faces: a right-facing fish returned -180 where a left-facing one
-       returned +180. Since CAUDAL_SPREAD_ANGLE_BANDS in
-       app/decisional/ibc_standards.py has `FaultBand("Disqualify", None,
-       165.0)` as its open lower band, every right-facing specimen
-       disqualified no matter how good its tail. `abs()` is taken at the
-       end. This is safe for the Jacobian: abs() is non-differentiable only
-       at 0, and a real caudal spread lives near 180, so the kink is never
-       anywhere near the decision boundary or the data.
-    """
+    # caudal spread angle measured from peduncle midpoint to fin tips
     mid = _peduncle_mid(x)
     axis = _point(x, Keypoint.CAUDAL_FIN_CENTER) - mid  # the fin's mid-ray
 
@@ -86,82 +38,61 @@ def caudal_spread_angle(x: np.ndarray) -> float:
 
 
 def _body_length(x: np.ndarray) -> float:
-    """Snout tip -> caudal peduncle midpoint (see `_peduncle_mid`)."""
+    # snout tip to caudal peduncle midpoint distance
     return float(np.linalg.norm(_point(x, Keypoint.SNOUT_TIP) - _peduncle_mid(x)))
 
 
 def _dorsal_base_mid(x: np.ndarray) -> np.ndarray:
-    """Midpoint of the dorsal fin base: mean(dorsal_base_ant, dorsal_base_post)."""
+    # midpoint of dorsal fin base
     return 0.5 * (
         _point(x, Keypoint.DORSAL_FIN_BASE_ANTERIOR) + _point(x, Keypoint.DORSAL_FIN_BASE_POSTERIOR)
     )
 
 
 def _anal_base_mid(x: np.ndarray) -> np.ndarray:
-    """Midpoint of the anal fin base: mean(anal_base_ant, anal_base_post)."""
+    "# midpoint of anal fin base"
     return 0.5 * (
         _point(x, Keypoint.ANAL_FIN_BASE_ANTERIOR) + _point(x, Keypoint.ANAL_FIN_BASE_POSTERIOR)
     )
 
 
 def _dorsal_length(x: np.ndarray) -> float:
-    """Dorsal fin base MIDPOINT -> dorsal fin tip.
-
-    Measured from the middle of the fin's base rather than its anterior
-    corner, so the length reflects the fin's extension from its attachment
-    as a whole. An earlier version measured from DORSAL_FIN_BASE_ANTERIOR
-    alone, which left DORSAL_FIN_BASE_POSTERIOR unused by every criterion
-    and biased the length by half the base width.
-    """
+    # dorsal base midpoint to dorsal fin tip
     return float(np.linalg.norm(_point(x, Keypoint.DORSAL_FIN_TIP) - _dorsal_base_mid(x)))
 
 
 def _anal_length(x: np.ndarray) -> float:
-    """Anal fin base MIDPOINT -> anal fin tip (see `_dorsal_length`)."""
+    # anal base midpoint to anal fin tip
     return float(np.linalg.norm(_point(x, Keypoint.ANAL_FIN_TIP) - _anal_base_mid(x)))
 
 
 def _caudal_length(x: np.ndarray) -> float:
-    """Caudal peduncle midpoint -> CAUDAL_FIN_CENTER.
-
-    IBC 2025 Exhibition Standards Book 1, Ch. 5 "DIMENSION", Caudal Fin:
-    the caudal "should be at least one half of the length of the body as
-    measured from the caudal peduncle to the center of the outer edge -
-    NOT to the edge of the greatest extension."
-
-    That last clause is the whole reason this is not the tip-to-tip span.
-    A brief version of this module measured
-    CAUDAL_FIN_TIP_UPPER -> CAUDAL_FIN_TIP_LOWER, which is exactly the
-    "greatest extension" the standard rules out: it rewards a tail that is
-    merely WIDE over one that is LONG, and for an ideal 180-degree Halfmoon
-    it reads about twice the standard's value, so every fish would clear a
-    0.50 threshold trivially.
-
-    Note the asymmetry with `_dorsal_length` / `_anal_length`, which DO run
-    base-midpoint -> tip. That is not an inconsistency in this module; the
-    standard defines the three fins differently, and each function follows
-    its own clause.
-    """
+    # caudal peduncle midpoint to caudal fin center
     return float(np.linalg.norm(_point(x, Keypoint.CAUDAL_FIN_CENTER) - _peduncle_mid(x)))
 
 
 def dorsal_body_ratio(x: np.ndarray) -> float:
+    # ratio of dorsal length to body length
     return _dorsal_length(x) / (_body_length(x) + 1e-12)
 
 
 def anal_body_ratio(x: np.ndarray) -> float:
+    # ratio of anal length to body length
     return _anal_length(x) / (_body_length(x) + 1e-12)
 
 
 def caudal_body_ratio(x: np.ndarray) -> float:
+    # ratio of caudal length to body length
     return _caudal_length(x) / (_body_length(x) + 1e-12)
 
 
 def anal_caudal_ratio(x: np.ndarray) -> float:
+    # ratio of anal length to caudal length
     return _anal_length(x) / (_caudal_length(x) + 1e-12)
 
 
 def dorsal_caudal_ratio(x: np.ndarray) -> float:
+    # ratio of dorsal length to caudal length
     return _dorsal_length(x) / (_caudal_length(x) + 1e-12)
 
 
