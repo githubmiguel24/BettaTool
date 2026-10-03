@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.decisional.ibc_standards import CAUDAL_SPREAD_ANGLE_BANDS, CRITERION_THRESHOLDS
+from app.decisional.ibc_standards import CAUDAL_SPREAD_ANGLE_BANDS, CRITERION_THRESHOLDS, UPPER_BOUND_RATIOS
 
 def classify_caudal_spread(angle_degrees: float) -> str:
     # map caudal spred angle to the ibc fault band labl
@@ -16,6 +16,8 @@ def classify_caudal_spread(angle_degrees: float) -> str:
 def classify_ratio(criterion_key: str, value: float) -> str:
     # pass/fault for ratio based criterion against its single threshold
     threshold = CRITERION_THRESHOLDS[criterion_key]
+    if criterion_key in UPPER_BOUND_RATIOS:
+        return "Pass" if value < threshold else "Fault"
     return "Pass" if value >= threshold else "Fault"
 
 def classify(criterion_key: str, value: float) -> str:

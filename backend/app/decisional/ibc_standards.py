@@ -1,4 +1,4 @@
-# ibc exhibition standrds thresholds for the six measurable criteria
+# ibc exhibition standrds thresholds for the five measurable criteria
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,15 +22,17 @@ CAUDAL_SPREAD_ANGLE_BANDS = [
 ]
 CAUDAL_SPREAD_ANGLE_THRESHOLD = 180.0  # tau used directl in the TSI formula
 
-# fin-to-body ratios min 0.50 and fin-to-fin ideal is 1.00
+# fin-to-body ratios must be at least 0.50, anal fin length-to-width must stay below 1.50
 # still a simplification, asymmetric severity is a known open item
 RATIO_THRESHOLDS = {
     "dorsal-body-ratio": 0.50,
     "anal-body-ratio": 0.50,
     "caudal-body-ratio": 0.50,
-    "anal-caudal-ratio": 1.00,
-    "dorsal-caudal-ratio": 1.00,
+    "anal-length-width-ratio": 1.50,
 }
+
+# ratio criteria where the value must stay BELOW the threshold (1.5x or more = form fault)
+UPPER_BOUND_RATIOS = frozenset({"anal-length-width-ratio"})
 
 CRITERION_THRESHOLDS = {
     "caudal-spread-angle": CAUDAL_SPREAD_ANGLE_THRESHOLD,

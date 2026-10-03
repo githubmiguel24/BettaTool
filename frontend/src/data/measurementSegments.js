@@ -12,12 +12,12 @@ const BODY = [0, PED]; // snout tip -> peduncle midpoint
 const DORSAL = [DORSAL_BASE, 4];
 const ANAL = [ANAL_BASE, 12];
 const CAUDAL = [PED, 9]; // peduncle midpoint -> caudal fin center
+const ANAL_WIDTH = [10, 11]; // anal base front corner -> rear corner
 
 export const MEASUREMENT_SEGMENTS = {
   "caudal-spread-angle": [[PED, 7], [PED, 8], CAUDAL],
   "dorsal-body-ratio": [DORSAL, BODY],
   "anal-body-ratio": [ANAL, BODY],
   "caudal-body-ratio": [CAUDAL, BODY],
-  "anal-caudal-ratio": [ANAL, CAUDAL],
-  "dorsal-caudal-ratio": [DORSAL, CAUDAL],
+  "anal-length-width-ratio": [ANAL, ANAL_WIDTH],
 };

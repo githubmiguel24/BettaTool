@@ -43,40 +43,64 @@ function halo(fillRgb) {
   return luminance(fillRgb) > 0.4 ? "#0f172a" : "#ffffff";
 }
 
+const MIN_CONTRAST = 3;
+// Share of a part's points that must clear MIN_CONTRAST for a shade to be accepted.
+const MIN_COVERAGE = 0.6;
+
 /**
- * Keep the base color (so groups stay recognizable) when it contrasts with the
- * local background; otherwise try lighter/darker shades of it, then black/white.
- * Returns { fill, stroke }.
+ * One fill color for a whole body part, so every point of a part always looks
+ * the same. Keeps the part's base hue and only shifts its lightness (the halo
+ * stroke handles any point that still sits on a tricky patch of photo): the
+ * first shade that contrasts with most of the part's local backgrounds wins,
+ * otherwise the shade that clears the most points.
  */
-export function pickMarkerColor(baseHex, bgRgb) {
-  if (!bgRgb) return { fill: baseHex, stroke: "#ffffff" };
+export function pickGroupColor(baseHex, bgSamples) {
+  const bgs = bgSamples.filter(Boolean);
+  if (!bgs.length) return baseHex;
   const base = hexToRgb(baseHex);
+  const white = [255, 255, 255];
+  const black = [0, 0, 0];
   const candidates = [
     base,
-    mix(base, [255, 255, 255], 0.45),
-    mix(base, [0, 0, 0], 0.45),
-    [255, 255, 255],
-    [15, 23, 42],
+    mix(base, white, 0.35),
+    mix(base, black, 0.35),
+    mix(base, white, 0.6),
+    mix(base, black, 0.6),
   ];
   let best = candidates[0];
-  let bestC = 0;
+  let bestScore = [-1, -1];
   for (const c of candidates) {
-    const ratio = contrast(c, bgRgb);
-    if (ratio >= 3) return { fill: toHex(c), stroke: halo(c) };
-    if (ratio > bestC) {
+    const ratios = bgs.map((bg) => contrast(c, bg));
+    const coverage = ratios.filter((r) => r >= MIN_CONTRAST).length / ratios.length;
+    if (coverage >= MIN_COVERAGE) return toHex(c);
+    const mean = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+    if (coverage > bestScore[0] || (coverage === bestScore[0] && mean > bestScore[1])) {
       best = c;
-      bestC = ratio;
+      bestScore = [coverage, mean];
     }
   }
-  return { fill: toHex(best), stroke: halo(best) };
+  return toHex(best);
 }
 
-/** { [kp.index]: { fill, stroke } } - the dot colors drawn on the photo. */
+/**
+ * { [kp.index]: { fill, stroke } } - the dot colors drawn on the photo. Every
+ * keypoint in a group shares one fill (adapted to the photo under that group);
+ * low-visibility points keep their group color and are dimmed at draw time.
+ */
 export function computeMarkerStyles(keypoints, sampler) {
-  const out = {};
+  const byGroup = new Map();
   for (const kp of keypoints ?? []) {
-    const base = kp.low_visibility ? "#94a3b8" : colorForGroup(kp.group);
-    out[kp.index] = pickMarkerColor(base, sampler ? sampler(kp.x, kp.y) : null);
+    if (!byGroup.has(kp.group)) byGroup.set(kp.group, []);
+    byGroup.get(kp.group).push(kp);
+  }
+  const out = {};
+  for (const [group, kps] of byGroup) {
+    const fill = pickGroupColor(
+      colorForGroup(group),
+      kps.map((kp) => (sampler ? sampler(kp.x, kp.y) : null)),
+    );
+    const style = { fill, stroke: halo(hexToRgb(fill)) };
+    for (const kp of kps) out[kp.index] = style;
   }
   return out;
 }

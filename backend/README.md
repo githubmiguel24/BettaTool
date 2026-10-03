@@ -79,7 +79,7 @@ _Last updated 2026-09-15, after implementing Build Prompt v2 (see
 - **Implemented and unit-tested (verified — pure NumPy/SciPy, no torch
   dependency)**: GUM uncertainty propagation (`app/analytical/
   gum_propagation.py`), the Threshold Sensitivity Index
-  (`app/analytical/tsi.py`), the six morphometric measurement functions
+  (`app/analytical/tsi.py`), the five morphometric measurement functions
   (`app/analytical/morphometrics.py`), the static IBC rule engine +
   selective abstention gate (`app/decisional/`), and the FastAPI
   route/schema layer.
@@ -116,7 +116,7 @@ _Last updated 2026-09-15, after implementing Build Prompt v2 (see
   `UploadView.jsx` to `POST /analyze` is unstarted work, not something this
   session touched.
 - **Needs verification against the IBC Exhibition Standards Book**: the
-  exact numeric thresholds for the five fin-ratio criteria in
+  exact numeric thresholds for the four fin-ratio criteria in
   `app/decisional/ibc_standards.py` are placeholders — only the caudal
   spread angle bands (Appendix 1, Table 5) are taken directly from the
   document.

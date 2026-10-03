@@ -26,15 +26,9 @@ export const measurements = [
     icon: AngleIcon,
   },
   {
-    key: "anal-caudal-ratio",
-    label: "Anal Fin / Caudal Fin Ratio",
-    description: "Anal fin height relative to caudal fin span",
+    key: "anal-length-width-ratio",
+    label: "Anal Fin Length-to-Width Ratio",
+    description: "Anal fin length (base midpoint to tip) divided by its base width; must stay below 1.5",
     icon: RulerIcon,
-  },
-  {
-    key: "dorsal-caudal-ratio",
-    label: "Dorsal Fin / Caudal Fin Ratio",
-    description: "Dorsal fin height relative to caudal fin span",
-    icon: AngleIcon,
   },
 ];

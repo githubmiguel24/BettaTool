@@ -251,7 +251,7 @@ function KeypointLayers({
           if (!isLit(kp.index)) return null;
           const { fill: color, stroke: ring } = markerStyles[kp.index];
           return (
-            <g key={`p-${kp.index}`}>
+            <g key={`p-${kp.index}`} opacity={kp.low_visibility ? 0.55 : 1}>
               {spotlight && (
                 <circle
                   cx={kp.x}
