@@ -86,14 +86,14 @@ def caudal_body_ratio(x: np.ndarray) -> float:
     return _caudal_length(x) / (_body_length(x) + 1e-12)
 
 
-def anal_caudal_ratio(x: np.ndarray) -> float:
-    # ratio of anal length to caudal length
-    return _anal_length(x) / (_caudal_length(x) + 1e-12)
+def _anal_width(x: np.ndarray) -> float:
+    # anal base front corner to rear corner
+    return _distance(x, Keypoint.ANAL_FIN_BASE_ANTERIOR, Keypoint.ANAL_FIN_BASE_POSTERIOR)
 
 
-def dorsal_caudal_ratio(x: np.ndarray) -> float:
-    # ratio of dorsal length to caudal length
-    return _dorsal_length(x) / (_caudal_length(x) + 1e-12)
+def anal_length_width_ratio(x: np.ndarray) -> float:
+    # ratio of anal length (base midpoint to tip) to anal width (front to rear corner)
+    return _anal_length(x) / (_anal_width(x) + 1e-12)
 
 
 # matches frontend Keys in measuremnts.js
@@ -102,6 +102,5 @@ MORPHOMETRIC_FUNCTIONS = {
     "dorsal-body-ratio": dorsal_body_ratio,
     "anal-body-ratio": anal_body_ratio,
     "caudal-body-ratio": caudal_body_ratio,
-    "anal-caudal-ratio": anal_caudal_ratio,
-    "dorsal-caudal-ratio": dorsal_caudal_ratio,
+    "anal-length-width-ratio": anal_length_width_ratio,
 }

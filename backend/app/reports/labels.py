@@ -16,8 +16,7 @@ CRITERION_LABELS = {
     "dorsal-body-ratio": "Dorsal Fin / Body Ratio Measurement",
     "anal-body-ratio": "Anal Fin / Body Ratio Measurement",
     "caudal-body-ratio": "Caudal Fin / Body Ratio Measurement",
-    "anal-caudal-ratio": "Anal Fin / Caudal Fin Ratio",
-    "dorsal-caudal-ratio": "Dorsal Fin / Caudal Fin Ratio",
+    "anal-length-width-ratio": "Anal Fin Length-to-Width Ratio",
 }
 
 # Index-aligned with app.perception.keypoints.Keypoint / KEYPOINT_SHORT_CODES.
@@ -77,21 +76,10 @@ CRITERION_LANDMARKS: dict[str, list[int]] = {
         Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
         Keypoint.CAUDAL_FIN_CENTER,
     ],
-    "anal-caudal-ratio": [
+    "anal-length-width-ratio": [
         Keypoint.ANAL_FIN_BASE_ANTERIOR,
         Keypoint.ANAL_FIN_BASE_POSTERIOR,
         Keypoint.ANAL_FIN_TIP,
-        Keypoint.CAUDAL_PEDUNCLE_TOP,
-        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
-        Keypoint.CAUDAL_FIN_CENTER,
-    ],
-    "dorsal-caudal-ratio": [
-        Keypoint.DORSAL_FIN_BASE_ANTERIOR,
-        Keypoint.DORSAL_FIN_BASE_POSTERIOR,
-        Keypoint.DORSAL_FIN_TIP,
-        Keypoint.CAUDAL_PEDUNCLE_TOP,
-        Keypoint.CAUDAL_PEDUNCLE_BOTTOM,
-        Keypoint.CAUDAL_FIN_CENTER,
     ],
 }
 
