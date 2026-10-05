@@ -8,7 +8,7 @@ import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
 import { deleteReports, getReport } from "../../api/reports.js";
-import { formatDate, formatValue } from "../../lib/format.js";
+import { decisionKind, formatDate, formatValue } from "../../lib/format.js";
 import {
   PlusIcon,
   ImageIcon,
@@ -21,9 +21,9 @@ import {
 } from "../../components/Icons.jsx";
 
 const statusStyles = {
-  "Confident Pass": { icon: CheckIcon, badge: "bg-emerald-100 text-emerald-600" },
-  "Defer to Judge": { icon: WarningIcon, badge: "bg-amber-100 text-amber-600" },
-  "Confident Fault": { icon: AlertCircleIcon, badge: "bg-red-100 text-red-600" },
+  Pass: { icon: CheckIcon, badge: "bg-emerald-100 text-emerald-600" },
+  Defer: { icon: WarningIcon, badge: "bg-amber-100 text-amber-600" },
+  Fault: { icon: AlertCircleIcon, badge: "bg-red-100 text-red-600" },
 };
 
 function downloadCsv(report) {
@@ -228,7 +228,7 @@ function ReportView() {
               if (!m) return null;
               const selected = selectedCriterion === key;
               const { icon: StatusIcon, badge } =
-                statusStyles[m.decision] ?? statusStyles["Defer to Judge"];
+                statusStyles[decisionKind(m.decision)];
               return (
                 <button
                   key={key}

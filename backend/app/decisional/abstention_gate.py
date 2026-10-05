@@ -33,7 +33,13 @@ def evaluate_criterion(
         decision = "Defer to Judge"
     else:
         # mark as pass or fault
-        decision = "Confident Fault" if label not in ("Pass", "Ideal") else "Confident Pass"
+        if label in ("Pass", "Ideal"):
+            decision = "Confident Pass"
+        elif criterion_key == "caudal-spread-angle":
+            # still a fault, but say how severe (Slight Fault / Major Fault / Disqualify)
+            decision = f"Confident {label}"
+        else:
+            decision = "Confident Fault"
 
     return CriterionResult(
         criterion_key=criterion_key,

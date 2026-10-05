@@ -8,7 +8,7 @@ import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
 import { deleteReports, saveReport } from "../../api/reports.js";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { formatValue } from "../../lib/format.js";
+import { decisionKind, formatValue } from "../../lib/format.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
 import {
   PlusIcon,
@@ -20,9 +20,9 @@ import {
 } from "../../components/Icons.jsx";
 
 const DECISION_STYLES = {
-  "Confident Pass": "bg-emerald-100 text-emerald-700",
-  "Confident Fault": "bg-red-100 text-red-700",
-  "Defer to Judge": "bg-amber-100 text-amber-700",
+  Pass: "bg-emerald-100 text-emerald-700",
+  Fault: "bg-red-100 text-red-700",
+  Defer: "bg-amber-100 text-amber-700",
 };
 
 function UploadView() {
@@ -327,7 +327,7 @@ function UploadView() {
                   <span
                     className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${
                       m
-                        ? (DECISION_STYLES[m.decision] ??
+                        ? (DECISION_STYLES[decisionKind(m.decision)] ??
                           "bg-slate-200/70 text-slate-500")
                         : "bg-slate-200/70 text-slate-500"
                     }`}

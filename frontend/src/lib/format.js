@@ -9,7 +9,8 @@ export function formatValue(criterionKey, value, uncertainty) {
 /** Backend decision string -> "Pass" | "Defer" | "Fault" (unknown -> Defer). */
 export function decisionKind(decision) {
   if (decision === "Confident Pass") return "Pass";
-  if (decision === "Confident Fault") return "Fault";
+  // caudal spread angle faults are qualified ("Confident Major Fault", "Confident Disqualify", ...)
+  if (decision?.startsWith("Confident ")) return "Fault";
   return "Defer";
 }
 
