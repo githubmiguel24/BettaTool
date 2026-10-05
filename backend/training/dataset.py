@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
 
 from app.perception.geometry import AffineTransform, bbox_crop_affine, crop_space_to_heatmap_space, letterbox_affine
 from app.perception.keypoints import MASKED_FLAGS, NUM_KEYPOINTS, VISIBLE_FLAGS, Visibility
-from training.targets import render_all_targets
+from training.targets import render_all_targets, render_all_targets_anisotropic
 
 
 # custom error for broken or malformed annotation records
@@ -168,6 +168,7 @@ class BettaKeypointDataset(Dataset):
         imagenet_std: list[float],
         transform_fn: Any = None,
         cache_crops_in_ram: bool = False,
+        target_anisotropy: dict[str, Any] | None = None,
     ) -> None:
         self.images_dir = Path(images_dir)
         self.input_size = input_size
@@ -179,6 +180,8 @@ class BettaKeypointDataset(Dataset):
         self.imagenet_std = np.array(imagenet_std, dtype=np.float32)
         self.transform_fn = transform_fn
         self.cache_crops_in_ram = cache_crops_in_ram
+        # {'across_scale': float, 'keypoint_indices': [int, ...]} or None for plain round targets
+        self.target_anisotropy = target_anisotropy
         self._crop_cache: dict[str, tuple[np.ndarray, np.ndarray, np.ndarray, AffineTransform]] = {}
 
         all_annotations = load_and_validate_annotations(annotations_path, self.images_dir)
@@ -263,9 +266,15 @@ class BettaKeypointDataset(Dataset):
         visibility_mask = visible.astype(np.float32)
 
         keypoints_heatmap_space = keypoints_crop / self.stride
-        heatmap_target = render_all_targets(
-            self.heatmap_size, keypoints_heatmap_space, self.heatmap_target_sigma_px, visible
-        )
+        if self.target_anisotropy:
+            heatmap_target = render_all_targets_anisotropic(
+                self.heatmap_size, keypoints_heatmap_space, self.heatmap_target_sigma_px, visible,
+                float(self.target_anisotropy["across_scale"]), tuple(self.target_anisotropy["keypoint_indices"]),
+            )
+        else:
+            heatmap_target = render_all_targets(
+                self.heatmap_size, keypoints_heatmap_space, self.heatmap_target_sigma_px, visible
+            )
 
         import torch  # local import so pure logic tests can still run without torch
 

@@ -1,0 +1,50 @@
+# v3 experiment: noisy-label training for the fin tips + elongated fin targets + EMA. Deep-merged on top of base.yaml.
+#
+#   python -m training.train_hrnet --config training/configs/hrnet_w32_v3.yaml
+#
+# Why: fin-tip error is ~28-32 px (body keypoints 3-10 px). It is a constant ~4.5% of body length for small and large
+# fish (so not resolution-limited), mostly perpendicular to the fin ray, and train error is ~half of val error. That
+# points at label placement noise along the fin outline, not at model capacity. Augmentation stays as in base.yaml
+# (the v2 augmentation/weight-decay run gave no measurable gain).
+#
+# Everything below is opt-in; base.yaml / v1 / v2 configs behave exactly as before.
+
+experiment_name: hrnet_w32_v3_noisy_labels
+
+loss:
+  # KL against a sum-normalised target (instead of MSE against a peak-1.0 target) so the TARGET SHAPE matters.
+  # With the old MSE the softmax heatmap (sum 1) can never match a peak-1.0 target, so the shape was nearly irrelevant.
+  heatmap_loss: kl
+  lambda_heatmap: 1.0
+  # NLL trains sigma only; the position is trained by the L1 / KL / distillation terms (the NLL gradient on mu is
+  # ~(mu - label) / sigma^2, which is a strong pull toward noisy labels when sigma is small).
+  nll_detach_mu: true
+  # idea 2: fin-tip targets stretched ACROSS the base->tip ray (error is mostly perpendicular to the ray)
+  heatmap_target_anisotropy:
+    enabled: true
+    across_scale: 2.0          # sigma across the ray = 2.0 * heatmap_target_sigma_px (4 vs 2 heatmap px)
+    keypoints: [dorsal_tip, caudal_tip_upper, caudal_tip_lower, caudal_center, anal_tip]
+
+# idea 1: learn to live with noisy labels
+noisy_labels:
+  fin_keypoints: [dorsal_tip, caudal_tip_upper, caudal_tip_lower, caudal_center, anal_tip]
+  ambiguous_weight: 0.5        # keypoints the annotator flagged "ambiguous" (flag 1) count half in the L1 / heatmap losses
+  distill_alpha_ambiguous: 0.5 # position target = (1 - a) * label + a * EMA-teacher prediction ...
+  distill_alpha_fin: 0.25      # ... a = 0.25 on every fin keypoint, plus 0.5 on flagged ones (summed, capped at 1)
+  distill_start_epoch: 15      # stage-2 epoch from which the teacher is used (the EMA needs time to become good)
+  trim_fraction: 0.10          # ignore the worst 10% of fin-tip residuals in each batch ...
+  trim_start_epoch: 15         # ... from this stage-2 epoch on
+
+training:
+  stage2_epochs: 80            # was 110; the teacher forward + raw/EMA evaluation add ~35% per epoch
+  ema:
+    enabled: true
+    decay: 0.998               # ~500-step horizon, i.e. roughly the last 7 epochs (72 optimizer steps per epoch)
+  early_stopping:
+    metric: val_nll            # val_radial_error_px picks stage-2 epoch 0 (before the NLL is trained), which is the wrong rule
+  checkpoint:
+    save_every_epoch: true
+    keep: [best, best_nll, best_tip, last]   # best = early-stopping metric, best_nll, best_tip = lowest fin-tip error
+
+logging:
+  log_val_calibration: true

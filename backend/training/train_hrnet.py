@@ -18,11 +18,13 @@ from torch.utils.data import DataLoader
 from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
 from training.dataset import BettaKeypointDataset
-from training.losses import gaussian_nll_loss, heatmap_mse_loss, visibility_bce_loss
+from app.perception.keypoints import KEYPOINT_SHORT_CODES
+from training.losses import gaussian_nll_loss, heatmap_kl_loss, heatmap_mse_loss, visibility_bce_loss
 from training.metrics.calibration import gaussian_nll_numpy, mahalanobis_coverage
 from training.splitting import load_splits
 from training.transforms import build_eval_transform, build_train_transform
 from training.utils.config import load_config
+from training.utils.ema import ModelEMA
 from training.utils.logging import MetricCSVLogger, create_run_dir
 from training.utils.seed import seed_everything
 
@@ -47,9 +49,17 @@ def build_dataloaders(cfg: dict[str, Any]) -> tuple[DataLoader, DataLoader]:
         cache_crops_in_ram=cfg["caching"]["cache_crops_in_ram"],
     )
 
+    aniso_cfg = cfg["loss"].get("heatmap_target_anisotropy", {})
+    target_anisotropy = None
+    if aniso_cfg.get("enabled", False):
+        target_anisotropy = {
+            "across_scale": aniso_cfg["across_scale"],
+            "keypoint_indices": [KEYPOINT_SHORT_CODES.index(name) for name in aniso_cfg["keypoints"]],
+        }
     train_ds = BettaKeypointDataset(
         split_image_ids=splits["train"],
         transform_fn=build_train_transform(cfg["augmentation"]["train"], img_cfg["input_size"]),
+        target_anisotropy=target_anisotropy,
         **common_kwargs,
     )
     val_ds = BettaKeypointDataset(
@@ -113,9 +123,15 @@ def run_stage(
     start_epoch: int = 0,
     resume_optimizer_state: dict[str, Any] | None = None,
     resume_scaler_state: dict[str, Any] | None = None,
+    ema: ModelEMA | None = None,
 ) -> None:
     # run a single training stage and handle checkpointing and early stopping
     loss_cfg = cfg["loss"]
+    nl_cfg = cfg.get("noisy_labels", {})  # all v3 options default to 'off' so v1/v2 configs behave as before
+    tip_names = nl_cfg.get("fin_keypoints", ["dorsal_tip", "caudal_tip_upper", "caudal_tip_lower", "caudal_center", "anal_tip"])
+    tip_mask = torch.zeros(len(KEYPOINT_SHORT_CODES), dtype=torch.bool, device=device)
+    for name in tip_names:
+        tip_mask[KEYPOINT_SHORT_CODES.index(name)] = True
     n_epochs = cfg["training"]["stage1_epochs"] if stage == 1 else cfg["training"]["stage2_epochs"]
     warmup_epochs = cfg["training"]["schedule"]["warmup_epochs"]
     scaler = torch.cuda.amp.GradScaler(enabled=cfg["training"]["amp"])
@@ -130,6 +146,7 @@ def run_stage(
     )
 
     best_val_metric = float("inf")
+    best_val_tip = float("inf")  # lowest val fin-tip + caudal-centre error, saved as best_tip.pt
     best_val_nll = float("inf")  # stage 2 only: lowest val NLL seen, saved as best_nll.pt
     epochs_without_improvement = 0
     checkpoints_dir = run_dir / "checkpoints"
@@ -163,21 +180,58 @@ def run_stage(
             visibility_mask = batch["visibility_mask"].to(device)
             heatmap_target = batch["heatmap_target"].to(device)
 
+            flags = batch["visibility"].to(device)  # annotator flag per keypoint: 2 clear, 1 ambiguous, 0 occluded, -1 out of frame
+            ambiguous = (flags == 1).float()
+            # per-keypoint weight: ambiguous labels count less in the localisation losses (not in the NLL)
+            label_weight = 1.0 - (1.0 - nl_cfg.get("ambiguous_weight", 1.0)) * ambiguous
+            loc_weight = visibility_mask * label_weight
+
+            teacher_mu = None
+            distill_on = (
+                stage == 2 and ema is not None and epoch >= nl_cfg.get("distill_start_epoch", 10**9)
+                and (nl_cfg.get("distill_alpha_ambiguous", 0.0) > 0 or nl_cfg.get("distill_alpha_fin", 0.0) > 0)
+            )
+            if distill_on:
+                with torch.no_grad(), torch.autocast(device_type="cuda" if device.startswith("cuda") else "cpu", enabled=cfg["training"]["amp"]):
+                    teacher_mu = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(ema.module(image)[0])).float()
+
             with torch.autocast(device_type="cuda" if device.startswith("cuda") else "cpu", enabled=cfg["training"]["amp"]):
                 heatmaps, covariances, visibility_logits = model(image)
                 mu_heatmap = soft_argmax(heatmaps)
                 mu_crop = HRNetKeypointDetector.mu_to_crop_space(mu_heatmap)
 
-                loss_heatmap = heatmap_mse_loss(heatmaps, heatmap_target, visibility_mask)
-                loss_mu = (torch.abs(mu_crop - gt_crop).sum(-1) * visibility_mask).sum(-1) / visibility_mask.sum(-1).clamp_min(1e-8)
-                loss_mu = loss_mu.mean()
+                if loss_cfg.get("heatmap_loss", "mse") == "kl":
+                    loss_heatmap = heatmap_kl_loss(heatmaps, heatmap_target, loc_weight)
+                else:
+                    loss_heatmap = heatmap_mse_loss(heatmaps, heatmap_target, loc_weight)
+
+                # localisation target: the label, blended with the EMA teacher's prediction where the label is untrustworthy
+                target_mu = gt_crop
+                if teacher_mu is not None:
+                    alpha = nl_cfg.get("distill_alpha_ambiguous", 0.0) * ambiguous + nl_cfg.get("distill_alpha_fin", 0.0) * tip_mask.float()
+                    alpha = alpha.clamp(0.0, 1.0).unsqueeze(-1)
+                    target_mu = (1.0 - alpha) * gt_crop + alpha * teacher_mu
+                l1 = torch.abs(mu_crop.float() - target_mu).sum(-1)  # (B, K)
+
+                # trimmed loss: ignore the worst fraction of fin-tip residuals in the batch (likely label noise)
+                weights = loc_weight
+                trim_q = nl_cfg.get("trim_fraction", 0.0)
+                if trim_q > 0 and stage == 2 and epoch >= nl_cfg.get("trim_start_epoch", 0):
+                    with torch.no_grad():
+                        candidates = (weights > 0) & tip_mask.unsqueeze(0)
+                        if candidates.sum() >= 4:
+                            threshold = torch.quantile(l1.detach()[candidates], 1.0 - trim_q)
+                            weights = weights * (~(candidates & (l1.detach() > threshold))).float()
+                loss_mu = ((l1 * weights).sum(-1) / weights.sum(-1).clamp_min(1e-8)).mean()
                 loss_vis = visibility_bce_loss(visibility_logits, _visibility_target_from_mask(visibility_mask))
 
                 loss = loss_cfg["lambda_heatmap"] * loss_heatmap + loss_cfg["lambda_mu_l1"] * loss_mu + loss_cfg["lambda_visibility"] * loss_vis
 
                 loss_nll = torch.tensor(0.0, device=device)
                 if stage == 2 and lambda_nll > 0:
-                    loss_nll = gaussian_nll_loss(mu_crop, covariances, gt_crop, visibility_mask, beta=loss_cfg["beta_nll"])
+                    # with nll_detach_mu the NLL only trains the covariance (sigma), not the position
+                    mu_for_nll = mu_crop.detach() if loss_cfg.get("nll_detach_mu", False) else mu_crop
+                    loss_nll = gaussian_nll_loss(mu_for_nll, covariances, gt_crop, visibility_mask, beta=loss_cfg["beta_nll"])
                     loss = loss + lambda_nll * loss_nll
 
                 loss = loss / cfg["training"]["grad_accum_steps"]
@@ -189,6 +243,8 @@ def run_stage(
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
+                if ema is not None:
+                    ema.update(model)
 
             bs = image.shape[0]
             running["heatmap"] += loss_heatmap.item() * bs
@@ -206,7 +262,9 @@ def run_stage(
 
         scheduler.step()
 
-        val_metrics = evaluate_epoch(model, val_loader, device, cfg)
+        eval_model = ema.module if ema is not None else model
+        val_metrics = evaluate_epoch(eval_model, val_loader, device, cfg)
+        raw_val_error = evaluate_epoch(model, val_loader, device, cfg)["mean_radial_error_px"] if ema is not None else ""
         n = max(1, running["n"])
         row = {
             "stage": stage,
@@ -219,6 +277,8 @@ def run_stage(
             "train_loss_total": running["total"] / n,
             "val_radial_error_px": val_metrics["mean_radial_error_px"],
             "val_mean_sigma_px": val_metrics["mean_sigma_px"],
+            "val_tip_error_px": val_metrics.get("tip_error_px", ""),
+            "val_radial_error_px_raw_weights": raw_val_error,
             "val_nll": val_metrics.get("nll", ""),
             "val_coverage_68": val_metrics.get("coverage_68", ""),
             "val_coverage_95": val_metrics.get("coverage_95", ""),
@@ -231,24 +291,35 @@ def run_stage(
 
         _check_covariance_collapse(row["val_mean_sigma_px"], row["val_radial_error_px"], cfg)
 
-        torch.save(
-            {"model": model.state_dict(), "optimizer": optimizer.state_dict(), "scaler": scaler.state_dict(), "epoch": epoch, "stage": stage},
-            checkpoints_dir / "last.pt",
-        )
+        eval_state = eval_model.state_dict()  # EMA weights when EMA is on, so evaluate.py / the app load the better weights
+        last = {"model": eval_state, "optimizer": optimizer.state_dict(), "scaler": scaler.state_dict(), "epoch": epoch, "stage": stage}
+        if ema is not None:
+            last["raw_model"] = model.state_dict()
+            last["ema_updates"] = ema.updates
+        torch.save(last, checkpoints_dir / "last.pt")
 
         # best_nll.pt: best val NLL (stage 2 only, where the covariance head is trained); opt-in via checkpoint.keep
         if stage >= 2 and "nll" in val_metrics and "best_nll" in cfg["training"]["checkpoint"]["keep"]:
             if val_metrics["nll"] < best_val_nll:
                 best_val_nll = val_metrics["nll"]
-                torch.save({"model": model.state_dict(), "epoch": epoch, "stage": stage, "val_nll": best_val_nll}, checkpoints_dir / "best_nll.pt")
+                torch.save({"model": eval_state, "epoch": epoch, "stage": stage, "val_nll": best_val_nll}, checkpoints_dir / "best_nll.pt")
                 logger.info("New best val NLL %.3f at stage=%d epoch=%d -> best_nll.pt", best_val_nll, stage, epoch)
 
+        # best_tip.pt: lowest val fin-tip + caudal-centre error (stage 2), opt-in via checkpoint.keep
+        if stage >= 2 and "tip_error_px" in val_metrics and "best_tip" in cfg["training"]["checkpoint"]["keep"]:
+            if val_metrics["tip_error_px"] < best_val_tip:
+                best_val_tip = val_metrics["tip_error_px"]
+                torch.save({"model": eval_state, "epoch": epoch, "stage": stage, "val_tip_error_px": best_val_tip}, checkpoints_dir / "best_tip.pt")
+                logger.info("New best val fin-tip error %.3f at stage=%d epoch=%d -> best_tip.pt", best_val_tip, stage, epoch)
+
         early_cfg = cfg["training"]["early_stopping"]
-        if stage >= early_cfg["active_from_stage"]:
-            if row["val_radial_error_px"] < best_val_metric:
-                best_val_metric = row["val_radial_error_px"]
+        metric_key = {"val_radial_error_px": "val_radial_error_px", "val_nll": "val_nll", "val_tip_error_px": "val_tip_error_px"}[early_cfg.get("metric", "val_radial_error_px")]
+        metric_value = row[metric_key]
+        if stage >= early_cfg["active_from_stage"] and metric_value != "":
+            if metric_value < best_val_metric:
+                best_val_metric = metric_value
                 epochs_without_improvement = 0
-                torch.save({"model": model.state_dict(), "epoch": epoch, "stage": stage}, checkpoints_dir / "best.pt")
+                torch.save({"model": eval_state, "epoch": epoch, "stage": stage}, checkpoints_dir / "best.pt")
             else:
                 epochs_without_improvement += 1
                 if epochs_without_improvement >= early_cfg["patience"]:
@@ -274,6 +345,8 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
     # fast validation pass per epoch with TTA disabled for speed
     model.eval()
     total_error, total_sigma, n = 0.0, 0.0, 0
+    tip_error_sum, tip_count = 0.0, 0.0
+    tip_idx = [KEYPOINT_SHORT_CODES.index(k) for k in cfg.get("noisy_labels", {}).get("fin_keypoints", ["dorsal_tip", "caudal_tip_upper", "caudal_tip_lower", "caudal_center", "anal_tip"])]
     log_calibration = cfg["logging"].get("log_val_calibration", False)
     all_mu, all_cov, all_gt, all_vis = [], [], [], []
     for batch in loader:
@@ -295,6 +368,8 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
         total_error += masked_error.item() * bs
         total_sigma += masked_sigma.item() * bs
         n += bs
+        tip_error_sum += (error[:, tip_idx] * visibility_mask[:, tip_idx]).sum().item()
+        tip_count += visibility_mask[:, tip_idx].sum().item()
 
         if log_calibration:
             all_mu.append(mu_crop.float().cpu().numpy())
@@ -303,7 +378,7 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
             all_vis.append(visibility_mask.cpu().numpy())
 
     n = max(1, n)
-    metrics = {"mean_radial_error_px": total_error / n, "mean_sigma_px": total_sigma / n}
+    metrics = {"mean_radial_error_px": total_error / n, "mean_sigma_px": total_sigma / n, "tip_error_px": tip_error_sum / max(tip_count, 1.0)}
     if log_calibration:
         # crop-space (384 px) Gaussian NLL and keypoint coverage, same functions as training/evaluate.py
         mu, cov, gt, vis = (np.concatenate(a) for a in (all_mu, all_cov, all_gt, all_vis))
@@ -363,8 +438,16 @@ def main() -> None:
 
     model, optimizer = build_model_and_optimizer(cfg, stage=1)
     if resume_ckpt is not None:
-        model.load_state_dict(resume_ckpt["model"])
+        model.load_state_dict(resume_ckpt.get("raw_model", resume_ckpt["model"]))
     model.to(device)
+
+    ema: ModelEMA | None = None
+    if cfg["training"].get("ema", {}).get("enabled", False):
+        ema = ModelEMA(model, decay=cfg["training"]["ema"]["decay"])
+        if resume_ckpt is not None and "raw_model" in resume_ckpt:
+            ema.module.load_state_dict(resume_ckpt["model"])
+            ema.updates = resume_ckpt.get("ema_updates", 0)
+        logger.info("EMA enabled (decay %.4f)", ema.decay)
 
     stage1_start = resume_epoch + 1 if resume_stage == 1 else (cfg["training"]["stage1_epochs"] if resume_stage == 2 else 0)
     run_stage(
@@ -372,6 +455,7 @@ def main() -> None:
         start_epoch=stage1_start,
         resume_optimizer_state=resume_ckpt["optimizer"] if resume_stage == 1 else None,
         resume_scaler_state=resume_ckpt["scaler"] if resume_stage == 1 else None,
+        ema=ema,
     )
 
     # rebuild optimizer for Stage 2 with a fresh cosine schedule and updated mu detach flag
@@ -395,6 +479,7 @@ def main() -> None:
         start_epoch=stage2_start,
         resume_optimizer_state=resume_ckpt["optimizer"] if resume_stage == 2 else None,
         resume_scaler_state=resume_ckpt["scaler"] if resume_stage == 2 else None,
+        ema=ema,
     )
 
     logger.info("Training complete. Best checkpoint: %s", run_dir / "checkpoints" / "best.pt")
