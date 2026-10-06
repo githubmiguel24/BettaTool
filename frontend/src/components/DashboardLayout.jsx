@@ -1,12 +1,13 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import bettaLogo from "../assets/betta-tool-cutout.png";
-import { UserIcon, UploadIcon, ClockIcon, LogoutIcon } from "./Icons.jsx";
+import { UserIcon, UploadIcon, ClockIcon, CompareIcon, LogoutIcon } from "./Icons.jsx";
 
 const navItems = [
   { to: "/dashboard", label: "Profile", icon: UserIcon },
   { to: "/upload", label: "Upload", icon: UploadIcon },
   { to: "/history", label: "History", icon: ClockIcon },
+  { to: "/compare", label: "Compare with MFLD-Net", icon: CompareIcon },
 ];
 
 function DashboardLayout({

@@ -8,6 +8,7 @@ import DashboardView from "./views/pages/DashboardView.jsx";
 import UploadView from "./views/pages/UploadView.jsx";
 import HistoryView from "./views/pages/HistoryView.jsx";
 import ReportView from "./views/pages/ReportView.jsx";
+import CompareView from "./views/pages/CompareView.jsx";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/upload" element={<UploadView />} />
             <Route path="/history" element={<HistoryView />} />
             <Route path="/report/:id" element={<ReportView />} />
+            <Route path="/compare" element={<CompareView />} />
           </Route>
         </Routes>
       </BrowserRouter>

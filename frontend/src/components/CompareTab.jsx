@@ -370,4 +370,33 @@ function CompareTab({ file, imageUrl, active }) {
   );
 }
 
+/** Compare for an already-saved photo: fetches the stored image back into a File, then runs the live comparison on it. */
+export function RemoteCompareTab({ imageUrl, name = "photo", active = true }) {
+  const [state, setState] = useState({ file: null, error: null });
+  useEffect(() => {
+    if (!imageUrl || !active) return undefined;
+    const ctrl = new AbortController();
+    setState({ file: null, error: null });
+    fetch(imageUrl, { signal: ctrl.signal })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Could not load the saved image (${res.status}).`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const type = blob.type || "image/jpeg";
+        const ext = type.split("/")[1] || "jpg";
+        const base = String(name).replace(/\.[^.]+$/, "");
+        setState({ file: new File([blob], `${base}.${ext}`, { type }), error: null });
+      })
+      .catch((err) => {
+        if (err.name !== "AbortError") setState({ file: null, error: err.message });
+      });
+    return () => ctrl.abort();
+  }, [imageUrl, name, active]);
+
+  if (state.error) return <p className="rounded-xl bg-red-50 px-5 py-4 text-sm text-red-700">{state.error}</p>;
+  if (!state.file) return <p className="text-base text-slate-400">Loading image…</p>;
+  return <CompareTab file={state.file} imageUrl={imageUrl} active={active} />;
+}
+
 export default CompareTab;
