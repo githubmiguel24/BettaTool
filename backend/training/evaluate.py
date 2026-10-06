@@ -61,7 +61,7 @@ def predict_with_flip_tta(
     Covariance and visibility are taken from the ORIGINAL (unflipped) pass
     only — the spec defines TTA for the heatmap/mean pathway; averaging two
     independently-parameterized covariance predictions is not addressed by
-    the spec and is left as a documented open item (see training/README.md).
+    the spec and is left as a documented open item (see the Training section of the root README.md).
 
     Also returns the single-pass means from the original and the flipped image
     mirrored back by coordinate (crop space) so the caller can record their disagreement (d_tta). When

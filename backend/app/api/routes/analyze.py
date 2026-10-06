@@ -12,6 +12,7 @@ from app.core.db import save_report
 from app.perception.keypoints import KEYPOINT_GROUPS, KEYPOINT_SHORT_CODES
 from app.perception.loader import load_model_bundle
 from app.perception.preprocess import decode_image, preprocess_image
+from app.core.config import settings
 from app.pipeline import AssessmentPipeline
 from app.reports.builder import build_report
 from app.reports.labels import KEYPOINT_LABELS
@@ -48,7 +49,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     to_original = to_crop.inverse()
 
     bundle = load_model_bundle()
-    pipeline = AssessmentPipeline(bundle.model, device=bundle.device)
+    pipeline = AssessmentPipeline(bundle.model, device=bundle.device, use_flip_tta=settings.use_flip_tta)
 
     try:
         output = pipeline.analyze_detailed(tensor, to_original=to_original)

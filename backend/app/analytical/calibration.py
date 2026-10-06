@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 DEFAULT_CALIBRATION_PATH = (
-    Path(__file__).resolve().parents[2] / "training" / "runs" / "v2_run" / "calibration.json"
+    Path(__file__).resolve().parents[2] / "training" / "runs" / "v3_run" / "calibration.json"
 )
 CALIBRATION_ENV_VAR = "BETTA_CALIBRATION_PATH"
 

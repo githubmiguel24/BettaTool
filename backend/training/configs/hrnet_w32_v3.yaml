@@ -46,5 +46,8 @@ training:
     save_every_epoch: true
     keep: [best, best_nll, best_tip, last]   # best = early-stopping metric, best_nll, best_tip = lowest fin-tip error
 
+tta:
+  enabled_eval: false          # the deployed pipeline runs a single pass, so evaluation and calibration do too
+
 logging:
   log_val_calibration: true

@@ -20,6 +20,7 @@ from app.analytical.tsi import compute_tsi
 from app.decisional.abstention_gate import CriterionResult, evaluate_criterion
 from app.decisional.ibc_standards import CRITERION_THRESHOLDS
 from app.perception.heatmap import batch_heatmaps_to_gaussians, soft_argmax
+from app.perception.tta import flip_averaged_heatmaps
 from app.perception.hrnet import HRNetKeypointDetector
 
 
@@ -42,10 +43,13 @@ class AssessmentPipeline:
         device: str = "cpu",
         visibility_threshold: float = 0.5,
         uncertainty_scales: dict[str, float] | None = None,
+        use_flip_tta: bool = False,
     ) -> None:
         self.model = model.to(device).eval()
         self.device = device
         self.visibility_threshold = visibility_threshold
+        # off by default: flip-TTA doubled inference time for ~1-2% lower error with v3; scales are fitted in the same mode
+        self.use_flip_tta = use_flip_tta
         # per-criterion post-hoc U scale; None -> read calibration.json if present, {} -> all 1.0
         self.uncertainty_scales = load_uncertainty_scales() if uncertainty_scales is None else uncertainty_scales
 
@@ -61,11 +65,14 @@ class AssessmentPipeline:
         to_original: AffineTransform | None = None,
     ) -> PipelineOutput:
         # runs the image tensor through detection, uncertainty math, and threshold checks
-        model_out = self.model(image_tensor.to(self.device))
+        image_on_device = image_tensor.to(self.device)
+        model_out = self.model(image_on_device)
 
         if len(model_out) == 3:
             # unpack 3-tuple output and use soft argmax for means in crop space
             heatmaps, covariances, visibility_logits = model_out
+            if self.use_flip_tta:
+                heatmaps, covariances, visibility_logits = flip_averaged_heatmaps(self.model, image_on_device, model_out)
             visibility_probs = torch.sigmoid(visibility_logits)[0].cpu().numpy()
             mu_heatmap_space = soft_argmax(heatmaps)
             mu_crop_space = HRNetKeypointDetector.mu_to_crop_space(mu_heatmap_space)

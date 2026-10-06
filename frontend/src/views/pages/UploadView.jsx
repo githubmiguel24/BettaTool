@@ -3,6 +3,7 @@ import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import KeypointSummary from "../../components/KeypointSummary.jsx";
+import CompareTab from "../../components/CompareTab.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { analyzeImage } from "../../api/client.js";
@@ -40,6 +41,7 @@ function UploadView() {
   const [showKeypoints, setShowKeypoints] = useState(true);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [selectedCriterion, setSelectedCriterion] = useState(null);
+  const [tab, setTab] = useState("analysis"); // "analysis" | "compare"
 
   async function loadFile(file) {
     if (!file || !file.type.startsWith("image/")) return;
@@ -54,6 +56,7 @@ function UploadView() {
     setStatus("loading");
     setSelectedCriterion(null);
     setSaveState(null);
+    setTab("analysis");
 
     try {
       const result = await analyzeImage(file);
@@ -84,6 +87,7 @@ function UploadView() {
     setStatus("idle");
     setSelectedCriterion(null);
     setSaveState(null);
+    setTab("analysis");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -158,7 +162,37 @@ function UploadView() {
         </div>
       )}
 
-      <div ref={captureRef} className="grid gap-8 lg:grid-cols-2">
+      {report && (
+        <div className="mb-6 flex gap-2 border-b border-slate-200" role="tablist" data-html2canvas-ignore>
+          {[
+            ["analysis", "Analysis"],
+            ["compare", "Compare with MFLD-Net"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => setTab(key)}
+              className={`-mb-px border-b-2 px-5 py-3 text-base font-medium transition ${
+                tab === key
+                  ? "border-betta-600 text-betta-700"
+                  : "border-transparent text-slate-400 hover:text-slate-600"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {report && image && (
+        <div className={tab === "compare" ? "" : "hidden"}>
+          <CompareTab file={image.file} imageUrl={image.url} active={tab === "compare"} />
+        </div>
+      )}
+
+      <div ref={captureRef} className={`grid gap-8 lg:grid-cols-2 ${tab === "compare" ? "hidden" : ""}`}>
         {/* Left: image upload + overlay */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">

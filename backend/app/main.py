@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import analyze, export, reports
+from app.api.routes import analyze, compare, export, reports
 from app.core.config import settings
 
 app = FastAPI(title=settings.app_name)
@@ -16,6 +16,7 @@ app.add_middleware(
 )
 
 app.include_router(analyze.router)
+app.include_router(compare.router)
 app.include_router(reports.router)
 app.include_router(export.router)
 
