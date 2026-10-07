@@ -132,7 +132,6 @@ function KeypointLayers({
               cy={kp.y}
               r={radius}
               fill={`url(#${heatId})`}
-              opacity={kp.low_visibility ? 0.45 : 1}
             />
           );
         })}
@@ -143,7 +142,6 @@ function KeypointLayers({
           const q = keypoints[b];
           if (!p || !q) return null;
           if (spotlight && !(isLit(a) && isLit(b))) return null;
-          const dim = p.low_visibility || q.low_visibility;
           return (
             <line
               key={`${a}-${b}`}
@@ -151,11 +149,10 @@ function KeypointLayers({
               y1={p.y}
               x2={q.x}
               y2={q.y}
-              stroke={dim ? "#94a3b8" : "#22d3ee"}
+              stroke="#22d3ee"
               strokeWidth={unit * 0.9}
-              strokeOpacity={spotlight ? 0.85 : dim ? 0.35 : 0.75}
+              strokeOpacity={spotlight ? 0.85 : 0.75}
               strokeLinecap="round"
-              strokeDasharray={dim ? `${unit * 2} ${unit * 2}` : undefined}
             />
           );
         })}
@@ -219,7 +216,7 @@ function KeypointLayers({
           if (!isLit(kp.index)) return null;
           const { fill: color, stroke: ring } = markerStyles[kp.index];
           return (
-            <g key={`p-${kp.index}`} opacity={kp.low_visibility ? 0.55 : 1}>
+            <g key={`p-${kp.index}`}>
               {spotlight && (
                 <circle
                   cx={kp.x}

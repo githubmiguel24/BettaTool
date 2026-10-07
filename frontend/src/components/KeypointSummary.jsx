@@ -38,7 +38,6 @@ function KeypointSummary({ keypoints, imageUrl, width, height }) {
               className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
               style={{
                 backgroundColor: styles[kp.index]?.fill,
-                opacity: kp.low_visibility ? 0.55 : 1,
                 boxShadow: `0 0 0 1px ${styles[kp.index]?.stroke ?? "#fff"}`,
               }}
             />

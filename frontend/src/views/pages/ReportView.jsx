@@ -29,7 +29,7 @@ const statusStyles = {
 
 function downloadCsv(report) {
   const rows = [
-    ["criterion", "value", "uncertainty", "tsi_px", "rmse_px", "decision"],
+    ["criterion", "value", "uncertainty", "tsi_px", "sigma_hat_px", "decision"],
     ...report.measurements.map((m) => [
       m.criterion_key,
       m.value,

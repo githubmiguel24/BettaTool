@@ -84,8 +84,7 @@ export function pickGroupColor(baseHex, bgSamples) {
 
 /**
  * { [kp.index]: { fill, stroke } } - the dot colors drawn on the photo. Every
- * keypoint in a group shares one fill (adapted to the photo under that group);
- * low-visibility points keep their group color and are dimmed at draw time.
+ * keypoint in a group shares one fill (adapted to the photo under that group).
  */
 export function computeMarkerStyles(keypoints, sampler) {
   const byGroup = new Map();

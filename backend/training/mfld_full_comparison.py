@@ -15,8 +15,9 @@ from pathlib import Path
 import numpy as np
 
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
+from app.analytical.jacobian import numerical_jacobian
 from app.perception.keypoints import KEYPOINT_SHORT_CODES as K
-from training.gate_analysis import is_fault
+from app.decisional.rule_engine import classify
 from training.metrics.localization import pck_at_alpha
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,6 +25,21 @@ NAME_MAP = {"dorsal_fin_base_anterior": "dorsal_base_ant", "dorsal_fin_base_post
             "caudal_peduncle_top": "peduncle_top", "caudal_peduncle_bottom": "peduncle_bottom", "caudal_fin_tip_upper": "caudal_tip_upper",
             "caudal_fin_tip_lower": "caudal_tip_lower", "caudal_fin_center": "caudal_center", "anal_fin_base_anterior": "anal_base_ant",
             "anal_fin_base_posterior": "anal_base_post", "anal_fin_tip": "anal_tip"}
+NOT_FAULT = ("Pass", "Ideal")
+
+
+def is_fault(key: str, values: np.ndarray) -> np.ndarray:
+    return np.array([classify(key, float(v)) not in NOT_FAULT for v in values])
+
+
+def criterion_keypoints(fn) -> list[int]:
+    """Indices of the keypoints a criterion's measurement actually depends on (non-zero Jacobian columns). A test image can be
+    scored on a criterion whenever THESE are labelled, even if another keypoint (e.g. the caudal centre) is missing."""
+    x = np.random.default_rng(0).uniform(10.0, 500.0, 2 * len(K))
+    jac = numerical_jacobian(fn, x).reshape(len(K), 2)
+    return [j for j in range(len(K)) if np.abs(jac[j]).sum() > 1e-9]
+
+
 IX = {k: i for i, k in enumerate(K)}
 TIPS = [IX[t] for t in ["dorsal_tip", "caudal_tip_upper", "caudal_tip_lower", "caudal_center", "anal_tip"]]
 BODY = [i for i in range(13) if i not in TIPS]

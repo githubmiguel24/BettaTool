@@ -60,8 +60,6 @@ export async function saveReport(file, report, userId) {
         sigma_x: k.sigma_x,
         sigma_y: k.sigma_y,
         rho: k.rho,
-        visibility: k.visibility,
-        low_visibility: k.low_visibility,
       })),
     ),
     report.warnings.length

@@ -85,13 +85,11 @@ model:
   pretrained: imagenet       # imagenet | coco_pose | none  -- see OPEN-QUESTIONS.md #1
   detach_mu_for_covariance_stage1: true
   detach_mu_for_covariance_stage2: false
-  visibility_threshold: 0.5   # probability above which a landmark is reported as present
 
 loss:
   heatmap_target_sigma_px: 2.0     # Gaussian target sigma, at heatmap (96x96) scale
   lambda_heatmap: 1.0
   lambda_mu_l1: 1.0
-  lambda_visibility: 1.0
   lambda_nll_target: 1.0
   nll_ramp_epochs: 10              # linear ramp of lambda_nll over first N epochs of stage 2
   beta_nll: 0.5                    # beta-NLL exponent (Seitzer et al. 2022); 0 disables it
@@ -121,11 +119,6 @@ training:
     keep: [best, last]
   num_workers: 4
   device: cuda
-
-tta:
-  enabled_eval: true
-  enabled_train_val: false
-  half_pixel_shift_correction: true
 
 evaluation:
   pck_alphas: [0.02, 0.05, 0.10]

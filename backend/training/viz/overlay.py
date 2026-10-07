@@ -1,5 +1,5 @@
-"""Overlay renderer: predicted keypoints, 95% covariance ellipses, visibility
-state, and ground truth (when available), drawn on the original image
+"""Overlay renderer: predicted keypoints, 95% covariance ellipses and ground
+truth (when available), drawn on the original image
 (Build Prompt v2 §10.5). Also auto-exports the 20 best/worst test images by
 radial error into the run directory.
 
@@ -19,7 +19,7 @@ from matplotlib.figure import Figure
 
 from app.perception.keypoints import KEYPOINT_SHORT_CODES, SKELETON_EDGES
 
-_VIS_COLORS = {2: "#22c55e", 1: "#eab308", 0: "#f97316", -1: "#94a3b8"}  # clear/ambiguous/occluded/oof
+_PRED_COLOR = "#22c55e"
 
 
 def _covariance_ellipse_params(cov: np.ndarray, n_std: float) -> tuple[float, float, float]:
@@ -43,7 +43,6 @@ def render_overlay(
     image: np.ndarray,
     pred_mu: np.ndarray,
     pred_cov: np.ndarray,
-    visibility_probs: np.ndarray,
     gt_mu: np.ndarray | None = None,
     ellipse_n_std: float = 2.448,
     title: str | None = None,
@@ -56,7 +55,6 @@ def render_overlay(
         pred_cov: (K, 2, 2) predicted covariances, original-image px^2 units
             (already transformed via `app/perception/geometry.py` — this
             function does no unit conversion of its own).
-        visibility_probs: (K,) predicted visibility probability in [0, 1].
         gt_mu: optional (K, 2) ground truth, drawn as small crosses.
         ellipse_n_std: number of standard deviations for the drawn ellipse.
         title: optional figure title (e.g. the image_id and its radial error).
@@ -72,7 +70,7 @@ def render_overlay(
         ax.plot([pred_mu[i, 0], pred_mu[j, 0]], [pred_mu[i, 1], pred_mu[j, 1]], color="white", linewidth=1, alpha=0.6)
 
     for k in range(pred_mu.shape[0]):
-        color = _VIS_COLORS.get(2 if visibility_probs[k] >= 0.5 else 0, "#94a3b8")
+        color = _PRED_COLOR
         width, height, angle = _covariance_ellipse_params(pred_cov[k], ellipse_n_std)
         ellipse = patches.Ellipse(pred_mu[k], width, height, angle=angle, facecolor="none", edgecolor=color, linewidth=1.5, alpha=0.85)
         ax.add_patch(ellipse)
@@ -94,7 +92,6 @@ def export_best_worst(
     images: list[np.ndarray],
     pred_mu: np.ndarray,
     pred_cov: np.ndarray,
-    visibility_probs: np.ndarray,
     gt_mu: np.ndarray,
     per_image_error: np.ndarray,
     out_dir: str | Path,
@@ -111,7 +108,7 @@ def export_best_worst(
         target_dir.mkdir(parents=True, exist_ok=True)
         for rank, i in enumerate(indices):
             fig = render_overlay(
-                images[i], pred_mu[i], pred_cov[i], visibility_probs[i], gt_mu[i],
+                images[i], pred_mu[i], pred_cov[i], gt_mu[i],
                 title=f"{image_ids[i]} — mean radial error {per_image_error[i]:.2f}px",
             )
             fig.savefig(target_dir / f"{rank:02d}_{image_ids[i]}.png", dpi=100)

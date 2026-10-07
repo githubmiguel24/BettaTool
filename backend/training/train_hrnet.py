@@ -19,8 +19,8 @@ from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
 from training.dataset import BettaKeypointDataset
 from app.perception.keypoints import KEYPOINT_SHORT_CODES
-from training.losses import gaussian_nll_loss, heatmap_kl_loss, heatmap_mse_loss, visibility_bce_loss
-from training.metrics.calibration import gaussian_nll_numpy, mahalanobis_coverage
+from training.losses import gaussian_nll_loss, heatmap_kl_loss
+from training.metrics.uncertainty_metrics import gaussian_nll_numpy, mahalanobis_coverage
 from training.splitting import load_splits
 from training.transforms import build_eval_transform, build_train_transform
 from training.utils.config import load_config
@@ -92,9 +92,7 @@ def build_model_and_optimizer(cfg: dict[str, Any], stage: int) -> tuple[torch.nn
 
     opt_cfg = cfg["training"]["optimizer"]
     backbone_params = list(model.backbone.parameters())
-    head_params = (
-        list(model.heatmap_head.parameters()) + list(model.covariance_head.parameters()) + list(model.visibility_head.parameters())
-    )
+    head_params = list(model.heatmap_head.parameters()) + list(model.covariance_head.parameters())
     optimizer = torch.optim.AdamW(
         [
             {"params": backbone_params, "lr": opt_cfg["lr_backbone"]},
@@ -103,11 +101,6 @@ def build_model_and_optimizer(cfg: dict[str, Any], stage: int) -> tuple[torch.nn
         weight_decay=opt_cfg["weight_decay"],
     )
     return model, optimizer
-
-
-def _visibility_target_from_mask(visibility_mask: torch.Tensor) -> torch.Tensor:
-    # visibility mask doubles directly as the BCE target for all keypoints
-    return visibility_mask
 
 
 def run_stage(
@@ -127,7 +120,7 @@ def run_stage(
 ) -> None:
     # run a single training stage and handle checkpointing and early stopping
     loss_cfg = cfg["loss"]
-    nl_cfg = cfg.get("noisy_labels", {})  # all v3 options default to 'off' so v1/v2 configs behave as before
+    nl_cfg = cfg.get("noisy_labels", {})
     tip_names = nl_cfg.get("fin_keypoints", ["dorsal_tip", "caudal_tip_upper", "caudal_tip_lower", "caudal_center", "anal_tip"])
     tip_mask = torch.zeros(len(KEYPOINT_SHORT_CODES), dtype=torch.bool, device=device)
     for name in tip_names:
@@ -173,7 +166,7 @@ def run_stage(
             ramp = min(1.0, epoch / max(1, loss_cfg["nll_ramp_epochs"]))
             lambda_nll = loss_cfg["lambda_nll_target"] * ramp
 
-        running = {"heatmap": 0.0, "mu_l1": 0.0, "vis": 0.0, "nll": 0.0, "total": 0.0, "n": 0}
+        running = {"heatmap": 0.0, "mu_l1": 0.0, "nll": 0.0, "total": 0.0, "n": 0}
         for step, batch in enumerate(train_loader):
             image = batch["image"].to(device)
             gt_crop = batch["keypoints_crop"].to(device)
@@ -196,14 +189,11 @@ def run_stage(
                     teacher_mu = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(ema.module(image)[0])).float()
 
             with torch.autocast(device_type="cuda" if device.startswith("cuda") else "cpu", enabled=cfg["training"]["amp"]):
-                heatmaps, covariances, visibility_logits = model(image)
+                heatmaps, covariances = model(image)
                 mu_heatmap = soft_argmax(heatmaps)
                 mu_crop = HRNetKeypointDetector.mu_to_crop_space(mu_heatmap)
 
-                if loss_cfg.get("heatmap_loss", "mse") == "kl":
-                    loss_heatmap = heatmap_kl_loss(heatmaps, heatmap_target, loc_weight)
-                else:
-                    loss_heatmap = heatmap_mse_loss(heatmaps, heatmap_target, loc_weight)
+                loss_heatmap = heatmap_kl_loss(heatmaps, heatmap_target, loc_weight)
 
                 # localisation target: the label, blended with the EMA teacher's prediction where the label is untrustworthy
                 target_mu = gt_crop
@@ -223,9 +213,8 @@ def run_stage(
                             threshold = torch.quantile(l1.detach()[candidates], 1.0 - trim_q)
                             weights = weights * (~(candidates & (l1.detach() > threshold))).float()
                 loss_mu = ((l1 * weights).sum(-1) / weights.sum(-1).clamp_min(1e-8)).mean()
-                loss_vis = visibility_bce_loss(visibility_logits, _visibility_target_from_mask(visibility_mask))
 
-                loss = loss_cfg["lambda_heatmap"] * loss_heatmap + loss_cfg["lambda_mu_l1"] * loss_mu + loss_cfg["lambda_visibility"] * loss_vis
+                loss = loss_cfg["lambda_heatmap"] * loss_heatmap + loss_cfg["lambda_mu_l1"] * loss_mu
 
                 loss_nll = torch.tensor(0.0, device=device)
                 if stage == 2 and lambda_nll > 0:
@@ -249,15 +238,14 @@ def run_stage(
             bs = image.shape[0]
             running["heatmap"] += loss_heatmap.item() * bs
             running["mu_l1"] += loss_mu.item() * bs
-            running["vis"] += loss_vis.item() * bs
             running["nll"] += float(loss_nll.item()) * bs
             running["total"] += loss.item() * cfg["training"]["grad_accum_steps"] * bs
             running["n"] += bs
 
             if step % cfg["logging"]["log_every_n_steps"] == 0:
                 logger.info(
-                    "stage=%d epoch=%d step=%d loss=%.4f (heatmap=%.4f mu_l1=%.4f vis=%.4f nll=%.4f, lambda_nll=%.3f)",
-                    stage, epoch, step, loss.item(), loss_heatmap.item(), loss_mu.item(), loss_vis.item(), float(loss_nll.item()), lambda_nll,
+                    "stage=%d epoch=%d step=%d loss=%.4f (heatmap=%.4f mu_l1=%.4f nll=%.4f, lambda_nll=%.3f)",
+                    stage, epoch, step, loss.item(), loss_heatmap.item(), loss_mu.item(), float(loss_nll.item()), lambda_nll,
                 )
 
         scheduler.step()
@@ -272,7 +260,6 @@ def run_stage(
             "lambda_nll": lambda_nll,
             "train_loss_heatmap": running["heatmap"] / n,
             "train_loss_mu_l1": running["mu_l1"] / n,
-            "train_loss_vis": running["vis"] / n,
             "train_loss_nll": running["nll"] / n,
             "train_loss_total": running["total"] / n,
             "val_radial_error_px": val_metrics["mean_radial_error_px"],
@@ -342,7 +329,7 @@ def _check_covariance_collapse(mean_sigma_px: float, mean_error_px: float, cfg: 
 
 @torch.no_grad()
 def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg: dict[str, Any]) -> dict[str, float]:
-    # fast validation pass per epoch with TTA disabled for speed
+    # fast validation pass per epoch
     model.eval()
     total_error, total_sigma, n = 0.0, 0.0, 0
     tip_error_sum, tip_count = 0.0, 0.0
@@ -354,7 +341,7 @@ def evaluate_epoch(model: torch.nn.Module, loader: DataLoader, device: str, cfg:
         gt_crop = batch["keypoints_crop"].to(device)
         visibility_mask = batch["visibility_mask"].to(device)
 
-        heatmaps, covariances, _ = model(image)
+        heatmaps, covariances = model(image)
         mu_crop = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps))
 
         error = torch.linalg.norm(mu_crop - gt_crop, dim=-1)  # shape (B, K)
@@ -465,9 +452,7 @@ def main() -> None:
         [
             {"params": model.backbone.parameters(), "lr": opt_cfg["lr_backbone"]},
             {
-                "params": list(model.heatmap_head.parameters())
-                + list(model.covariance_head.parameters())
-                + list(model.visibility_head.parameters()),
+                "params": list(model.heatmap_head.parameters()) + list(model.covariance_head.parameters()),
                 "lr": opt_cfg["lr_heads"],
             },
         ],

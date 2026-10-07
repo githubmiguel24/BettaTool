@@ -1,5 +1,5 @@
-"""Full evaluation: localization + calibration + visibility metrics, flip
-TTA, and qualitative overlay export (Build Prompt v2 §9.1, §10).
+"""Full evaluation: localization + calibration metrics
+and qualitative overlay export (Build Prompt v2 §9.1, §10).
 
     python -m training.evaluate --config training/configs/hrnet_w32.yaml \\
         --checkpoint training/runs/<run>/checkpoints/best.pt --split test
@@ -19,15 +19,14 @@ from typing import Any
 
 import numpy as np
 import torch
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
 
 from app.perception.geometry import AffineTransform
 from app.perception.heatmap import soft_argmax
-from app.perception.hrnet import HEATMAP_STRIDE, HRNetKeypointDetector
+from app.perception.hrnet import HRNetKeypointDetector
 from app.perception.keypoints import KEYPOINT_SHORT_CODES
 from training.dataset import BettaKeypointDataset
-from training.metrics.calibration import (
+from training.metrics.uncertainty_metrics import (
     fixed_sigma_baseline_nll,
     gaussian_nll_numpy,
     mahalanobis_coverage,
@@ -50,48 +49,10 @@ logger = logging.getLogger(__name__)
 
 
 @torch.no_grad()
-def predict_with_flip_tta(
-    model: torch.nn.Module, image: torch.Tensor, enabled: bool
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
-    """Build Prompt v2 §9.1: average heatmaps (not coordinates) from the
-    original and horizontally-flipped image, THEN soft-argmax. The flip
-    keypoint permutation is the identity (§3.1), so no channel reordering
-    is needed on the flipped heatmaps — only the spatial flip-back.
-
-    Covariance and visibility are taken from the ORIGINAL (unflipped) pass
-    only — the spec defines TTA for the heatmap/mean pathway; averaging two
-    independently-parameterized covariance predictions is not addressed by
-    the spec and is left as a documented open item (see the Training section of the root README.md).
-
-    Also returns the single-pass means from the original and the flipped image
-    mirrored back by coordinate (crop space) so the caller can record their disagreement (d_tta). When
-    TTA is disabled the flipped means are NaN.
-    """
-    heatmaps, covariances, visibility_logits = model(image)
-    if not enabled:
-        mu_crop = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps))
-        return mu_crop, covariances, visibility_logits, mu_crop, torch.full_like(mu_crop, float("nan"))
-
-    flipped_image = torch.flip(image, dims=[-1])
-    flipped_heatmaps, _, _ = model(flipped_image)
-
-    # Flip the heatmap back spatially, with the standard half-pixel shift
-    # correction (Build Prompt v2 §9.1) to avoid a systematic sub-pixel bias.
-    flipped_back = torch.flip(flipped_heatmaps, dims=[-1])
-    # The 1-column shift is zero-padded, NOT torch.roll: roll wraps the last column
-    # round to column 0, which dragged the soft-argmax of right-edge keypoints
-    # (e.g. the snout of right-facing fish) toward the left edge.
-    flipped_back = F.pad(flipped_back, (1, 0))[..., :-1]
-
-    averaged = 0.5 * (heatmaps + flipped_back)
-    averaged = averaged / averaged.sum(dim=(-1, -2), keepdim=True).clamp_min(1e-12)
-    mu_crop = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(averaged))
-    mu_orig_pass = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps))
-    # flipped-pass position mirrored back by coordinate (x -> W - x); d_tta is measured against this
-    mu_flip_raw = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(flipped_heatmaps))
-    crop_width = flipped_heatmaps.shape[-1] * HEATMAP_STRIDE
-    mu_flip_pass = torch.stack([crop_width - mu_flip_raw[..., 0], mu_flip_raw[..., 1]], dim=-1)
-    return mu_crop, covariances, visibility_logits, mu_orig_pass, mu_flip_pass
+def predict(model: torch.nn.Module, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Single forward pass: soft-argmax means in crop space and the predicted covariances."""
+    heatmaps, covariances = model(image)
+    return HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps)), covariances
 
 
 def evaluate_split(cfg: dict[str, Any], checkpoint_path: str, split: str, device: str) -> dict[str, Any]:
@@ -116,32 +77,24 @@ def evaluate_split(cfg: dict[str, Any], checkpoint_path: str, split: str, device
     model.load_state_dict(state["model"])
     model.to(device).eval()
 
-    tta_enabled = cfg["tta"]["enabled_eval"]
-
-    all_mu_orig, all_cov_orig, all_gt_orig, all_vis_mask, all_vis_prob, all_image_ids, all_d_tta = [], [], [], [], [], [], []
+    all_mu_orig, all_cov_orig, all_gt_orig, all_vis_mask, all_image_ids = [], [], [], [], []
 
     for batch in loader:
         image = batch["image"].to(device)
-        mu_crop, cov_crop, vis_logits, mu_a, mu_b = predict_with_flip_tta(model, image, tta_enabled)
-        vis_prob = torch.sigmoid(vis_logits)
+        mu_crop, cov_crop = predict(model, image)
 
         for i in range(image.shape[0]):
             affine = AffineTransform(A=batch["affine_A"][i].numpy(), b=batch["affine_b"][i].numpy()).inverse()
             all_mu_orig.append(affine.apply_points(mu_crop[i].cpu().numpy()))
-            # px distance between original-pass and flipped-back-pass positions, in original-image space
-            all_d_tta.append(np.linalg.norm(
-                affine.apply_points(mu_a[i].cpu().numpy()) - affine.apply_points(mu_b[i].cpu().numpy()), axis=-1))
             all_cov_orig.append(affine.apply_covariances(cov_crop[i].cpu().numpy()))
             all_gt_orig.append(affine.apply_points(batch["keypoints_crop"][i].numpy()))
             all_vis_mask.append(batch["visibility_mask"][i].numpy())
-            all_vis_prob.append(vis_prob[i].cpu().numpy())
             all_image_ids.append(batch["image_id"][i])
 
     pred_mu = np.stack(all_mu_orig)
     pred_cov = np.stack(all_cov_orig)
     gt = np.stack(all_gt_orig)
     vis_mask = np.stack(all_vis_mask)
-    vis_prob = np.stack(all_vis_prob)
 
     kp_short = KEYPOINT_SHORT_CODES
     snout_idx, ptop_idx, pbot_idx = kp_short.index("snout_tip"), kp_short.index("peduncle_top"), kp_short.index("peduncle_bottom")
@@ -152,7 +105,6 @@ def evaluate_split(cfg: dict[str, Any], checkpoint_path: str, split: str, device
     results: dict[str, Any] = {
         "split": split,
         "n_images": len(all_image_ids),
-        "tta_enabled": tta_enabled,
         "overall_rmse_px": overall_rmse(pred_mu, gt, vis_mask),
         "per_keypoint_rmse_px": dict(zip(kp_short, per_keypoint_rmse(pred_mu, gt, vis_mask).tolist())),
         "mean_radial_error_px": mean_err,
@@ -179,7 +131,7 @@ def evaluate_split(cfg: dict[str, Any], checkpoint_path: str, split: str, device
     # raw predictions (original-image pixel space) for measurement-level coverage
     np.savez(
         out_dir / "predictions.npz",
-        pred_mu=pred_mu, pred_cov=pred_cov, gt=gt, vis_mask=vis_mask, d_tta=np.stack(all_d_tta),
+        pred_mu=pred_mu, pred_cov=pred_cov, gt=gt, vis_mask=vis_mask,
         image_ids=np.array(all_image_ids),
     )
 
@@ -188,7 +140,7 @@ def evaluate_split(cfg: dict[str, Any], checkpoint_path: str, split: str, device
     per_image_error = np.nanmean(err, axis=1)
     images_for_overlay = [_load_original_image(ds, image_id) for image_id in all_image_ids]
     export_best_worst(
-        all_image_ids, images_for_overlay, pred_mu, pred_cov, vis_prob, gt, per_image_error,
+        all_image_ids, images_for_overlay, pred_mu, pred_cov, gt, per_image_error,
         out_dir / "overlay", k=cfg["evaluation"]["export_best_worst_k"],
     )
 

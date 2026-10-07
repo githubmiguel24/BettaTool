@@ -10,20 +10,20 @@ The OKS/AP figures of MFLD-Net are the ones its own evaluate.py reported (they n
 from __future__ import annotations
 
 import json
-import sys
-import time
 from datetime import date
 from pathlib import Path
 
 import numpy as np
-import torch
 
+from app.analytical.measurement_factor import load_tsi_scales
+from app.analytical.jacobian import numerical_jacobian
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
+from app.analytical.tsi import compute_tsi, is_confident, predicted_keypoint_sigma
+from app.decisional.ibc_standards import CRITERION_THRESHOLDS
 from app.perception.keypoints import KEYPOINT_SHORT_CODES as K
 from app.reports.labels import CRITERION_LABELS, KEYPOINT_LABELS
-from training.gate_analysis import is_fault
 from training.metrics.localization import pck_at_alpha
-from training.mfld_full_comparison import BODY, IX, TIPS, load_mfld, load_ours
+from training.mfld_full_comparison import BODY, IX, TIPS, criterion_keypoints, is_fault, load_mfld, load_ours
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "backend" / "app" / "data" / "mfld_benchmark.json"
@@ -35,19 +35,7 @@ def row(key, label, unit, ours, mfld, higher_is_better, note=None):
     ratio = (ours / mfld if higher_is_better else mfld / ours) if min(ours, mfld) > 0 else None   # >1 means ours is better
     times = None if ratio is None else float(max(ratio, 1.0 / ratio))                              # how many times better the winner is
     return {"key": key, "label": label, "unit": unit, "ours": float(ours), "mfld": float(mfld), "better": better,
-            "times_better": times, "higher_is_better": higher_is_better, "note": note}
-
-
-def cpu_ms(model, size, runs=5):
-    model.eval()
-    x = torch.randn(1, 3, size, size)
-    with torch.no_grad():
-        for _ in range(2):
-            model(x)
-        t = time.time()
-        for _ in range(runs):
-            model(x)
-    return (time.time() - t) / runs * 1000
+            "times_better": times, "higher_is_better": higher_is_better, "note": note, "ours_deferral": None}
 
 
 def main() -> None:
@@ -72,9 +60,12 @@ def main() -> None:
         f = lambda p: pck_at_alpha(p, gt, vis, al, IX["snout_tip"], IX["peduncle_top"], IX["peduncle_bottom"])["pck"] * 100
         rows.append(row(f"pck_{int(al * 100)}", f"Keypoints within {int(al * 100)}% of body length", "%", f(opred), f(mpred), True))
 
-    keep = vis.all(axis=1)
-    maes_o, maes_m, acc_o, acc_m = [], [], [], []
+    maes_o, maes_m, acc_o, acc_m, majority, dec_o, dec_share = [], [], [], [], [], [], []
+    tsi_scales, n_cases, n_decided, n_decided_ok = load_tsi_scales(), 0, 0, 0
+    n_per_criterion = []
     for key, fn in MORPHOMETRIC_FUNCTIONS.items():
+        keep = vis[:, criterion_keypoints(fn)].all(axis=1)      # every image where THIS criterion's keypoints are labelled
+        n_per_criterion.append(int(keep.sum()))
         yt = np.array([fn(g.reshape(-1)) for g in gt[keep]])
         ym = np.array([fn(p.reshape(-1)) for p in mpred[keep]])
         yo = np.array([fn(p.reshape(-1)) for p in opred[keep]])
@@ -83,24 +74,49 @@ def main() -> None:
         maes_m.append(np.abs(ym - yt).mean() / np.abs(yt).mean() * 100)
         acc_o.append((is_fault(key, yo) == ft).mean() * 100)
         acc_m.append((is_fault(key, ym) == ft).mean() * 100)
-    rows.append(row("criterion_error", "Measurement error, 5 IBC criteria (relative)", "%", np.mean(maes_o), np.mean(maes_m), False))
-    rows.append(row("criterion_accuracy", "Pass/Fault accuracy, forced decisions, 5 criteria", "%", np.mean(acc_o), np.mean(acc_m), True,
-                    "Ours additionally defers uncertain cases; on the cases it decides it is 99.6% accurate (MFLD-Net has no deferral)."))
+        majority.append(max(ft.mean(), 1 - ft.mean()) * 100)
+        # our deployed gate on the same cases: decide only if tsi_scale * sigma_hat < TSI
+        decided_mask = []
+        for p, c, y, f_true in zip(opred[keep], ov["pred_cov"][keep], yo, ft):
+            jac = numerical_jacobian(fn, p.reshape(-1))
+            sigma_hat = tsi_scales.get(key, 1.0) * predicted_keypoint_sigma(jac, c)
+            n_cases += 1
+            confident = is_confident(sigma_hat, compute_tsi(y, CRITERION_THRESHOLDS[key], jac))
+            decided_mask.append(confident)
+            if confident:
+                n_decided += 1
+                n_decided_ok += int(is_fault(key, np.array([y]))[0] == f_true)
+        decided_mask = np.array(decided_mask)
+        share = decided_mask.mean()
+        dec_o.append((is_fault(key, yo) == ft)[decided_mask].mean() * 100)
+        dec_share.append(share * 100)
+    n_note = ("Each criterion is scored on every test image where its own keypoints are labelled: "
+              + ", ".join(f"{k} {n}" for k, n in zip(MORPHOMETRIC_FUNCTIONS, n_per_criterion)) + " images.")
+    rows.append(row("criterion_error", "Measurement error, 5 IBC criteria (relative)", "%", np.mean(maes_o), np.mean(maes_m), False, n_note))
+    acc = row("criterion_accuracy", "Pass/Fault accuracy, 5 criteria", "%", np.mean(acc_o), np.mean(acc_m), True,
+              "BettaTool without deferral and MFLD-Net both answer every case. BettaTool with deferral answers only the cases its uncertainty "
+              "says it can decide, so its accuracy is over those cases only. Reference: always answering each criterion's most common outcome, "
+              f"with no model at all, scores {np.mean(majority):.1f}% (the test set is mostly Pass / mostly Fault per criterion).")
+    acc["ours_deferral"] = float(np.mean(dec_o))
+    rows.append(acc)
+    answered = row("answered", "Share of cases the system gives an answer on", "%", 100.0, 100.0, True,
+                   "The rest are deferred to a human judge by BettaTool's gate. MFLD-Net has no deferral, so it answers every case.")
+    answered["ours_deferral"] = float(np.mean(dec_share))
+    answered["better"], answered["times_better"] = None, None
+    rows.append(answered)
 
-    from app.perception.hrnet import HRNetKeypointDetector
-    from app.perception.mfld import MfldNet
-    ours_model = HRNetKeypointDetector(backbone_source="custom")          # same architecture, random init: only used for counting / timing
-    ck = torch.load(ROOT / "backend" / "training" / "runs" / "mfld_best.pt", map_location="cpu")
-    mfld_model = MfldNet(**ck["model_cfg"])
-    po, pm = sum(p.numel() for p in ours_model.parameters()) / 1e6, sum(p.numel() for p in mfld_model.parameters()) / 1e6
-    rows.append(row("params", "Model size", "M parameters", po, pm, False, "MFLD-Net is a deliberately tiny model for mobile devices."))
-    rows.append(row("cpu_ms", "Inference time, one image on CPU (dev laptop)", "ms", cpu_ms(ours_model, 384, 3), cpu_ms(mfld_model, 224), False))
 
     per_kp = [{"name": k, "label": KEYPOINT_LABELS[i], "ours_px": float(eo[vis[:, i], i].mean()), "mfld_px": float(em[vis[:, i], i].mean())} for i, k in enumerate(K)]
     coco = json.loads((ROOT / "backend" / "data" / "annotations" / "annotations.json").read_text())
     meta = {str(i["id"]): i for i in coco["images"]}
     body = np.linalg.norm(gt[:, IX["snout_tip"]] - 0.5 * (gt[:, IX["peduncle_top"]] + gt[:, IX["peduncle_bottom"]]), axis=1)
-    pick = np.random.default_rng(0).choice(len(gt), 8, replace=False)          # random sample, fixed seed: not hand-picked
+    # photos 5-8 are the original random sample (seed 0) and stay; photos 1-4 are a fresh random draw (seed 1) from the rest
+    keep_ids = ["507", "447", "79", "996"]
+    keep_idx = [oids.index(i) for i in keep_ids]
+    old_idx = set(np.random.default_rng(0).choice(len(gt), 8, replace=False).tolist())
+    pool = [i for i in range(len(gt)) if i not in old_idx]
+    fresh = np.random.default_rng(1).choice(pool, 4, replace=False).tolist()
+    pick = fresh + keep_idx
     examples = []
     for i in pick:
         iid = oids[int(i)]
@@ -111,13 +127,13 @@ def main() -> None:
                                         "mfld": [float(mpred[i, j, 0]), float(mpred[i, j, 1])]} for j, k in enumerate(K)]})
     out = {
         "generated": date.today().isoformat(), "split": "test", "n_images": int(len(gt)),
-        "ours": {"name": "HRNet-W32 + probabilistic heads (v3)", "training": "1,161 training images (70%), ImageNet-pretrained backbone, fish-box crop input"},
+        "ours": {"name": "BettaTool (HRNet-W32 + probabilistic heads, v3)", "training": "1,161 training images (70%), ImageNet-pretrained backbone, fish-box crop input"},
         "mfld": {"name": "MFLD-Net (retrained)", "training": "1,127 training images (68%) from scratch, fish-box crop input, same split",
                  "reported_oks": MFLD_REPORTED_OKS},
         "protocol": "Both models scored against our annotations on the same 247 held-out test images, in original-photo pixels, with the labelled "
                     "fish box as the crop. Error figures are lower-is-better; PCK and accuracy are higher-is-better.",
         "rows": rows, "per_keypoint": per_kp, "examples": examples,
-        "examples_note": "8 test images drawn at random (fixed seed), not hand-picked. Green = human label, blue = ours, orange = MFLD-Net.",
+        "examples_note": "8 test images drawn at random (fixed seeds), not hand-picked. Green = human label, blue = BettaTool, orange = MFLD-Net.",
         "caveats": ["MFLD-Net is far smaller and faster; the accuracy gap partly reflects model size and ImageNet pretraining.",
                     "The live overlay in the app feeds both models the whole photo (the app has no fish detector), which is harder than the benchmark input.",
                     "A single uploaded photo has no ground truth, so differences on one image show disagreement, not which model is right."],

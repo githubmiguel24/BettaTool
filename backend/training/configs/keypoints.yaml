@@ -68,10 +68,10 @@ flip_map: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
 
 # Visibility flag schema (extended beyond plain COCO visibility — see
 # training/dataset.py and app/perception/keypoints.py for the enum).
-#   2  = clearly visible                    -> heatmap+NLL trained, vis target 1
-#   1  = visible but ambiguous / occluded    -> heatmap+NLL trained, vis target 1
-#   0  = occluded, position inferable        -> heatmap+NLL masked,  vis target 0
-#  -1  = out of frame                        -> heatmap+NLL masked,  vis target 0
+#   2  = clearly visible                    -> heatmap+NLL trained
+#   1  = visible but ambiguous / occluded    -> heatmap+NLL trained
+#   0  = occluded, position inferable        -> heatmap+NLL masked
+#  -1  = out of frame                        -> heatmap+NLL masked
 visibility_flags:
   clear: 2
   ambiguous: 1

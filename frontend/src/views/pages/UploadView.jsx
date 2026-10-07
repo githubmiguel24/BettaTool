@@ -354,7 +354,7 @@ function UploadView() {
                     </p>
                     <p className="mt-0.5 text-sm text-slate-400">
                       {m
-                        ? `${formatValue(key, m.value, m.uncertainty)} · TSI ${m.tsi.toFixed(2)}px · RMSE ${m.rmse.toFixed(2)}px`
+                        ? `${formatValue(key, m.value, m.uncertainty)} · σ̂ ${m.rmse.toFixed(2)}px vs TSI ${m.tsi.toFixed(2)}px`
                         : description}
                     </p>
                   </div>

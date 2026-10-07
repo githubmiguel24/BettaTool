@@ -107,7 +107,7 @@ function LivePanel({ imageUrl, state }) {
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
           <Toggle checked={showOurs} onChange={setShowOurs}>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> Ours ({fmt(data.ours.params_millions)} M params)
+            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool ({fmt(data.ours.params_millions)} M params)
           </Toggle>
           <Toggle checked={showMfld} onChange={setShowMfld}>
             <span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net ({fmt(data.mfld.params_millions, 2)} M params)
@@ -188,8 +188,9 @@ function BenchmarkPanel({ state }) {
           <thead className="bg-slate-50 text-xs text-slate-400">
             <tr>
               <th className="px-4 py-2 font-medium">Measured on {d.n_images} labelled test images</th>
-              <th className="px-4 py-2 text-right font-medium" style={{ color: OURS }}>Ours</th>
-              <th className="px-4 py-2 text-right font-medium" style={{ color: MFLD }}>MFLD-Net</th>
+              <th className="px-4 py-2 text-right font-medium" style={{ color: OURS }}>BettaTool<span className="block text-[10px] font-normal text-slate-400">no deferral</span></th>
+              <th className="px-4 py-2 text-right font-medium" style={{ color: OURS }}>BettaTool<span className="block text-[10px] font-normal text-slate-400">with deferral</span></th>
+              <th className="px-4 py-2 text-right font-medium" style={{ color: MFLD }}>MFLD-Net<span className="block text-[10px] font-normal text-slate-400">no deferral</span></th>
               <th className="px-4 py-2 text-right font-medium">Better</th>
             </tr>
           </thead>
@@ -201,11 +202,14 @@ function BenchmarkPanel({ state }) {
                   {r.note && <p className="text-xs text-slate-400">{r.note}</p>}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums text-slate-700">{fmt(r.ours, r.ours < 10 ? 2 : 1)}</td>
+                <td className="px-4 py-2 text-right tabular-nums text-slate-700">{r.ours_deferral == null ? "–" : fmt(r.ours_deferral, 1)}</td>
                 <td className="px-4 py-2 text-right tabular-nums text-slate-700">{fmt(r.mfld, r.mfld < 10 ? 2 : 1)}</td>
                 <td className="px-4 py-2 text-right">
-                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${r.better === "ours" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200/70 text-slate-600"}`}>
-                    {r.better === "ours" ? "Ours" : "MFLD-Net"}{r.times_better ? ` ${fmt(r.times_better)}×` : ""}
-                  </span>
+                  {r.better && (
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${r.better === "ours" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200/70 text-slate-600"}`}>
+                      {r.better === "ours" ? "BettaTool" : "MFLD-Net"}{r.times_better ? ` ${fmt(r.times_better)}×` : ""}
+                    </span>
+                  )}
                 </td>
               </tr>
             ))}
@@ -226,7 +230,7 @@ function BenchmarkPanel({ state }) {
 
       <ul className="mt-6 list-disc space-y-1 pl-5 text-xs text-slate-400">
         {d.caveats.map((c, i) => <li key={i}>{c}</li>)}
-        <li>Ours: {d.ours.training}. MFLD-Net: {d.mfld.training}. Generated {d.generated}.</li>
+        <li>BettaTool: {d.ours.training}. MFLD-Net: {d.mfld.training}. Generated {d.generated}.</li>
       </ul>
     </div>
   );
@@ -291,7 +295,7 @@ function ExamplesPanel({ data }) {
           )}
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500">
             <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: GT }} /> Human label</span>
-            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> Ours</span>
+            <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool</span>
             <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net</span>
             <span>Lines run from the label to each model point: a shorter line is a better answer.</span>
           </div>
@@ -299,7 +303,7 @@ function ExamplesPanel({ data }) {
         <div>
           <div className="grid grid-cols-3 gap-3">
             <div className="rounded-xl bg-slate-50 p-4">
-              <p className="text-xs text-slate-400">Ours, mean error</p>
+              <p className="text-xs text-slate-400">BettaTool, mean error</p>
               <p className="mt-1 text-xl font-semibold" style={{ color: OURS }}>{fmt(ex.ours_mean_px)} px</p>
               <p className="text-xs text-slate-400">{fmt((ex.ours_mean_px / ex.body_length_px) * 100)}% of body length</p>
             </div>
@@ -311,7 +315,7 @@ function ExamplesPanel({ data }) {
             <div className="rounded-xl bg-slate-50 p-4">
               <p className="text-xs text-slate-400">On this photo</p>
               <p className="mt-1 text-xl font-semibold text-slate-700">{times >= 1 ? `${fmt(times)}× lower` : `${fmt(1 / times)}× higher`}</p>
-              <p className="text-xs text-slate-400">error for ours</p>
+              <p className="text-xs text-slate-400">error for BettaTool</p>
             </div>
           </div>
           <div className="mt-5 max-h-[22rem] overflow-y-auto rounded-xl ring-1 ring-slate-100">
@@ -319,7 +323,7 @@ function ExamplesPanel({ data }) {
               <thead className="sticky top-0 bg-white text-xs text-slate-400">
                 <tr>
                   <th className="px-3 py-2 font-medium">Keypoint</th>
-                  <th className="px-3 py-2 text-right font-medium" style={{ color: OURS }}>Ours px</th>
+                  <th className="px-3 py-2 text-right font-medium" style={{ color: OURS }}>BettaTool px</th>
                   <th className="px-3 py-2 text-right font-medium" style={{ color: MFLD }}>MFLD px</th>
                 </tr>
               </thead>
@@ -350,7 +354,7 @@ function CompareTab({ file, imageUrl, active }) {
   return (
     <div className="space-y-8">
       <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-        <h2 className="text-base font-semibold text-slate-700">Detected keypoints: ours vs MFLD-Net on this photo</h2>
+        <h2 className="text-base font-semibold text-slate-700">Detected keypoints: BettaTool vs MFLD-Net on this photo</h2>
         <p className="mb-5 mt-1 text-sm text-slate-400">Both models see the same uploaded photo. Where they disagree, hover a row to find the keypoint on the image.</p>
         <LivePanel imageUrl={imageUrl} state={live} />
       </section>

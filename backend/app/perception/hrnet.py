@@ -147,25 +147,8 @@ class CovarianceHead(nn.Module):
         return sigma.clamp(min=SIGMA_MIN_PX, max=SIGMA_MAX_PX)
 
 
-class VisibilityHead(nn.Module):
-    # get visbility logits per keypont
-    def __init__(self, in_ch: int, num_keypoints: int, hidden_ch: int = 128) -> None:
-        super().__init__()
-        self.global_pool = nn.AdaptiveAvgPool2d(1)
-        self.mlp = nn.Sequential(
-            nn.Linear(in_ch, hidden_ch),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_ch, num_keypoints),
-        )
-
-    def forward(self, features: torch.Tensor) -> torch.Tensor:
-        b, c, _, _ = features.shape
-        pooled = self.global_pool(features).view(b, c)
-        return self.mlp(pooled) 
-
-
 class HRNetKeypointDetector(nn.Module):
-    # Main hrnet keypoint moduel. returns heatmaps covs and visbility
+    # Main hrnet keypoint moduel. returns heatmaps and covs
     def __init__(
         self,
         num_keypoints: int = NUM_KEYPOINTS,
@@ -179,19 +162,22 @@ class HRNetKeypointDetector(nn.Module):
         self.backbone, feat_ch = build_backbone(backbone_source)
         self.heatmap_head = HeatmapHead(feat_ch, num_keypoints)
         self.covariance_head = CovarianceHead(feat_ch, num_keypoints)
-        self.visibility_head = VisibilityHead(feat_ch, num_keypoints)
 
-    def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         features = self.backbone(image)
         heatmaps = self.heatmap_head(features)
 
-        mu_heatmap_space = soft_argmax(heatmaps) 
+        mu_heatmap_space = soft_argmax(heatmaps)
         mu_for_cov = mu_heatmap_space.detach() if self.detach_mu_for_covariance else mu_heatmap_space
 
         covariances = self.covariance_head(features, mu_for_cov)
-        visibility_logits = self.visibility_head(features)
 
-        return heatmaps, covariances, visibility_logits
+        return heatmaps, covariances
+
+    def load_state_dict(self, state_dict, *args, **kwargs):
+        # checkpoints up to v3 still carry weights for the removed visibility head
+        state_dict = {k: v for k, v in state_dict.items() if not k.startswith("visibility_head.")}
+        return super().load_state_dict(state_dict, *args, **kwargs)
 
     @staticmethod
     def mu_to_crop_space(mu_heatmap_space: torch.Tensor) -> torch.Tensor:
