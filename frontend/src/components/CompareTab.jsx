@@ -184,6 +184,45 @@ function Bar({ value, max, color }) {
   return <div className="h-2.5 rounded-full" style={{ width: `${Math.max(2, (value / max) * 100)}%`, backgroundColor: color }} />;
 }
 
+const OURS_DEFER = "#93c5fd"; // light blue: BettaTool when it may defer
+const METRIC_GROUPS = [
+  { title: "Keypoint accuracy", keys: ["mean_all", "mean_tips", "mean_body", "median_all", "rmse_all", "win_rate", "pck_5", "pck_10"] },
+  { title: "Rule decisions", keys: ["criterion_error", "criterion_accuracy", "answered"] },
+];
+
+const valueText = (v, unit) => `${fmt(v, v < 10 ? 2 : 1)}${unit === "px" ? " px" : "%"}`;
+
+/** One metric: its name and winner, then one bar per system. Systems with no value for this metric are left out. */
+function MetricRow({ r }) {
+  const bars = [
+    { name: "BettaTool", value: r.ours, color: OURS },
+    { name: "BettaTool with deferral", value: r.ours_deferral, color: OURS_DEFER },
+    { name: "MFLD-Net", value: r.mfld, color: MFLD },
+  ].filter((b) => typeof b.value === "number");
+  const max = Math.max(...bars.map((b) => b.value), 1e-9);
+  return (
+    <div className="py-4">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-sm font-medium text-slate-700">{r.label}</p>
+        {r.better && (
+          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${r.better === "ours" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200/70 text-slate-600"}`}>
+            {r.better === "ours" ? "BettaTool" : "MFLD-Net"}{r.times_better ? ` ${fmt(r.times_better)}×` : ""}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 space-y-1.5">
+        {bars.map((b) => (
+          <div key={b.name} className="flex items-center gap-3">
+            <span className="w-44 shrink-0 text-xs font-medium" style={{ color: b.color === OURS_DEFER ? OURS : b.color }}>{b.name}</span>
+            <div className="flex-1"><Bar value={b.value} max={max} color={b.color} /></div>
+            <span className="w-20 shrink-0 text-right text-sm font-semibold tabular-nums text-slate-700">{valueText(b.value, r.unit)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BenchmarkPanel({ state }) {
   const rows = state.data?.rows ?? [];
   const perKp = state.data?.per_keypoint ?? [];
@@ -191,59 +230,33 @@ function BenchmarkPanel({ state }) {
   if (state.status === "loading") return <p className="text-sm text-slate-500">Loading the benchmark…</p>;
   if (state.status === "error") return <p className="rounded-xl bg-amber-50 px-5 py-4 text-sm text-amber-800">{state.error}</p>;
   if (!state.data) return null;
-  const d = state.data;
   return (
     <div>
-      <p className="text-sm text-slate-500">{d.protocol}</p>
-      <div className="mt-4 overflow-x-auto rounded-xl ring-1 ring-slate-100">
-        <table className="w-full text-left text-sm">
-          <thead className="bg-slate-50 text-xs text-slate-400">
-            <tr>
-              <th className="px-4 py-2 font-medium">Measured on {d.n_images} labelled test images</th>
-              <th className="px-4 py-2 text-right font-medium" style={{ color: OURS }}>BettaTool<span className="block text-[10px] font-normal text-slate-400">no deferral</span></th>
-              <th className="px-4 py-2 text-right font-medium" style={{ color: OURS }}>BettaTool<span className="block text-[10px] font-normal text-slate-400">with deferral</span></th>
-              <th className="px-4 py-2 text-right font-medium" style={{ color: MFLD }}>MFLD-Net<span className="block text-[10px] font-normal text-slate-400">no deferral</span></th>
-              <th className="px-4 py-2 text-right font-medium">Better</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.key} className="border-t border-slate-100">
-                <td className="px-4 py-2 text-slate-600">
-                  {r.label} <span className="text-xs text-slate-400">({r.unit}{r.higher_is_better ? ", higher is better" : ", lower is better"})</span>
-                  {r.note && <p className="text-xs text-slate-400">{r.note}</p>}
-                </td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">{fmt(r.ours, r.ours < 10 ? 2 : 1)}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">{r.ours_deferral == null ? "–" : fmt(r.ours_deferral, 1)}</td>
-                <td className="px-4 py-2 text-right tabular-nums text-slate-700">{fmt(r.mfld, r.mfld < 10 ? 2 : 1)}</td>
-                <td className="px-4 py-2 text-right">
-                  {r.better && (
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${r.better === "ours" ? "bg-emerald-100 text-emerald-700" : "bg-slate-200/70 text-slate-600"}`}>
-                      {r.better === "ours" ? "BettaTool" : "MFLD-Net"}{r.times_better ? ` ${fmt(r.times_better)}×` : ""}
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="space-y-6">
+        {METRIC_GROUPS.map((g) => {
+          const groupRows = g.keys.map((key) => rows.find((r) => r.key === key)).filter(Boolean);
+          if (!groupRows.length) return null;
+          return (
+            <div key={g.title}>
+              <h3 className="text-sm font-semibold text-slate-700">{g.title}</h3>
+              <div className="mt-1 divide-y divide-slate-100">
+                {groupRows.map((r) => <MetricRow key={r.key} r={r} />)}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      <p className="mt-6 text-sm font-medium text-slate-600">Mean error per keypoint (px, lower is better)</p>
-      <div className="mt-3 grid gap-x-8 gap-y-1.5 sm:grid-cols-2">
+      <p className="mt-8 text-sm font-semibold text-slate-700">Mean error per keypoint</p>
+      <div className="mt-3 grid gap-x-8 gap-y-2 sm:grid-cols-2">
         {perKp.map((k) => (
-          <div key={k.name} className="text-xs text-slate-500">
-            <div className="flex justify-between"><span>{k.label}</span><span className="tabular-nums">{fmt(k.ours_px)} vs {fmt(k.mfld_px)}</span></div>
+          <div key={k.name} className="text-xs text-slate-600">
+            <div className="flex justify-between"><span>{k.label}</span><span className="tabular-nums">{fmt(k.ours_px)} px vs {fmt(k.mfld_px)} px</span></div>
             <Bar value={k.ours_px} max={maxKp} color={OURS} />
             <div className="mt-0.5"><Bar value={k.mfld_px} max={maxKp} color={MFLD} /></div>
           </div>
         ))}
       </div>
-
-      <ul className="mt-6 list-disc space-y-1 pl-5 text-xs text-slate-400">
-        {d.caveats.map((c, i) => <li key={i}>{c}</li>)}
-        <li>BettaTool: {d.ours.training}. MFLD-Net: {d.mfld.training}. Generated {d.generated}.</li>
-      </ul>
     </div>
   );
 }
@@ -387,8 +400,7 @@ function CompareTab({ file, imageUrl, active }) {
         </section>
       )}
       <section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
-        <h2 className="text-base font-semibold text-slate-700">Which one is more accurate? Measured against labels</h2>
-        <p className="mb-5 mt-1 text-sm text-slate-400">The evidence for accuracy comes from held-out labelled images, not from a single photo.</p>
+        <h2 className="mb-5 text-base font-semibold text-slate-700">System Accuracy Comparisons</h2>
         <BenchmarkPanel state={bench} />
       </section>
     </div>

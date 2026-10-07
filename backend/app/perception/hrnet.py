@@ -87,7 +87,7 @@ class _TimmFeatureWrapper(nn.Module):
         return torch.cat(fused, dim=1)
 
 
-class HeatmapHead(nn.Module):
+class HeatmapMeanHead(nn.Module):
     # 1x1 conv to get spatial softMax normalized heatmaps
     def __init__(self, in_ch: int, num_keypoints: int) -> None:
         super().__init__()
@@ -160,7 +160,7 @@ class HRNetKeypointDetector(nn.Module):
         self.detach_mu_for_covariance = detach_mu_for_covariance
 
         self.backbone, feat_ch = build_backbone(backbone_source)
-        self.heatmap_head = HeatmapHead(feat_ch, num_keypoints)
+        self.heatmap_head = HeatmapMeanHead(feat_ch, num_keypoints)
         self.covariance_head = CovarianceHead(feat_ch, num_keypoints)
 
     def forward(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
