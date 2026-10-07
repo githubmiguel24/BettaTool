@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from app.api.schemas.compare import ComparedKeypoint, ComparisonResponse, CompareSummary, ModelInfo
 from app.core.config import settings
 from app.perception.keypoints import KEYPOINT_GROUPS, KEYPOINT_SHORT_CODES, Keypoint
-from app.perception.loader import load_model_bundle
+from app.perception.loader import require_trained_bundle
 from app.perception.mfld import load_mfld_bundle, predict_keypoints
 from app.perception.preprocess import decode_image, preprocess_image
 from app.pipeline import AssessmentPipeline
@@ -68,11 +68,11 @@ async def compare_models(file: UploadFile = File(...)) -> ComparisonResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    bundle = require_trained_bundle()  # no trained model -> 503, no results
     mfld = load_mfld_bundle()
     if mfld is None:
         raise HTTPException(status_code=503, detail=f"MFLD-Net checkpoint not found at '{settings.mfld_checkpoint_path}'. Set MFLD_CHECKPOINT_PATH to enable the comparison.")
 
-    bundle = load_model_bundle()
     tensor, to_crop = preprocess_image(image)
     try:
         out = AssessmentPipeline(bundle.model, device=bundle.device).analyze_detailed(tensor, to_original=to_crop.inverse())

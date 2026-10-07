@@ -97,6 +97,22 @@ def load_model_bundle(force_reload: bool = False) -> ModelBundle:
         return _BUNDLE
 
 
+# raised when there is no trained checkpoint, so the system refuses to produce keypoints or measurements
+class ModelNotTrainedError(RuntimeError):
+    pass
+
+
+# same as load_model_bundle but refuses to hand back randomly initialized weights
+def require_trained_bundle() -> ModelBundle:
+    bundle = load_model_bundle()
+    if not bundle.trained:
+        raise ModelNotTrainedError(
+            f"No trained model found at '{settings.model_checkpoint_path}'. "
+            "Analysis is disabled until a trained checkpoint is available."
+        )
+    return bundle
+
+
 # clears the cached model mostly for unit tests or Manual reloads
 def reset_model_bundle() -> None:
     global _BUNDLE

@@ -10,7 +10,7 @@ from app.api.schemas.keypoint import KeypointPrediction
 from app.api.schemas.report import AssessmentReport
 from app.core.db import save_report
 from app.perception.keypoints import KEYPOINT_GROUPS, KEYPOINT_SHORT_CODES
-from app.perception.loader import load_model_bundle
+from app.perception.loader import require_trained_bundle
 from app.perception.preprocess import decode_image, preprocess_image
 from app.core.config import settings
 from app.pipeline import AssessmentPipeline
@@ -44,11 +44,12 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    bundle = require_trained_bundle()  # no trained model -> 503, no results
+
     orig_h, orig_w = image.shape[:2]
     tensor, to_crop = preprocess_image(image)
     to_original = to_crop.inverse()
 
-    bundle = load_model_bundle()
     pipeline = AssessmentPipeline(bundle.model, device=bundle.device)
 
     try:
@@ -75,8 +76,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     ]
     report.image_width = int(orig_w)
     report.image_height = int(orig_h)
-    report.model_trained = bundle.trained
-    report.warnings = [] if bundle.trained else [bundle.status_note]
+    report.model_trained = True
 
     save_report(report)
     return report
