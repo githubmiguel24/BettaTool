@@ -107,10 +107,10 @@ function LivePanel({ imageUrl, state }) {
       <div>
         <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
           <Toggle checked={showOurs} onChange={setShowOurs}>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool ({fmt(data.ours.params_millions)} M params)
+            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool
           </Toggle>
           <Toggle checked={showMfld} onChange={setShowMfld}>
-            <span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net ({fmt(data.mfld.params_millions, 2)} M params)
+            <span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net
           </Toggle>
           <Toggle checked={showLines} onChange={setShowLines}>Difference lines</Toggle>
         </div>
