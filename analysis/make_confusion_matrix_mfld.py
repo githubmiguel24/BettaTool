@@ -37,6 +37,9 @@ from analysis.make_confusion_matrix import (
 ROOT = Path(__file__).resolve().parents[1]
 OURS_PREDICTIONS = "training/runs/v3_run/eval_test/predictions.npz"
 MFLD_PREDICTIONS = ROOT / "mfld-net" / "predictions_test.npz"
+# mfld-net/ is a separate repo; a copy of its test predictions is kept in this repo as a fallback
+if not MFLD_PREDICTIONS.is_file():
+    MFLD_PREDICTIONS = ROOT / "backend" / "data" / "mfld_predictions" / "predictions_test.npz"
 
 
 def load_mfld_aligned(ours: Predictions) -> np.ndarray:

@@ -9,6 +9,15 @@ venv/
 # Large/gitignored data assets — keep folder structure via .gitkeep
 data/raw/*
 !data/raw/.gitkeep
+# the 8 labelled test photos shown in the Compare tab (listed in app/data/mfld_benchmark.json)
+!data/raw/fix_Screenshot 2026-09-13 125306_png_png_jpg.rf.0Zwq9OUMRlAEzkd52oXW.jpg
+!data/raw/RareHalfmoonMulticolorsBettaFish_36631803-407d-4a00-be4f-90f34dace5a5_jpeg_jpeg.rf.5UBj0HvgzC9ABGjNPUsl.jpeg
+!data/raw/510799056_23863983579878141_7543617118468032386_n_jpg.rf.NefmDw077AHVrEZVA54M.jpg
+!data/raw/669459395_122127613461242123_205738449203657998_n_jpg.rf.fGsoxyQEUyeAxoo8VRov.jpg
+!data/raw/download (48)_jpg.rf.xbESzIWEhGGdGsGVoq7h.jpg
+!data/raw/704167380_1447736127366996_3582019693240160231_n_jpg.rf.yWCsvUWSsAsd8WChJnew.jpg
+!data/raw/fix_Screenshot 2026-09-15 132259_png_jpg.rf.7Bwsqr9TNxMrgv4qrRTF.jpg
+!data/raw/1789108825885_jpg.rf.cQyhH8Caf7SBaEv7JGJn.jpg
 data/annotations/*
 !data/annotations/.gitkeep
 data/splits/*

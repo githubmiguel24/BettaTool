@@ -4,7 +4,13 @@ frontend/dist/
 frontend/.vite/
 
 # Training artifacts — never commit checkpoints or run logs, they're large
-backend/training/runs/
+backend/training/runs/*
+!backend/training/runs/v3_run/
+backend/training/runs/v3_run/*
+!backend/training/runs/v3_run/eval_test/
+backend/training/runs/v3_run/eval_test/*
+# needed by analysis/make_confusion_matrix*.py (ours + ground truth on the test split)
+!backend/training/runs/v3_run/eval_test/predictions.npz
 backend/data/raw_dummy/
 
 # OS / editor junk
