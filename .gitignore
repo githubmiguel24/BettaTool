@@ -33,3 +33,7 @@ node_modules/
 # Local env files (Supabase keys) - .env.example stays committed
 frontend/.env
 frontend/.env.local
+
+# Generated confusion-matrix outputs (regenerate with analysis/make_confusion_matrix*.py)
+backend/confusion_matrices_out/
+backend/confusion_matrices_out_caudal_ge180/

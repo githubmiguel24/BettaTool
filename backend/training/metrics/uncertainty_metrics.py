@@ -1,4 +1,4 @@
-# calibration metrics for evaluating uncertainty and coverage (nll, mahalanobis, spearman)
+# metrics for evaluating uncertainty and coverage (nll, mahalanobis, spearman)
 
 from __future__ import annotations
 

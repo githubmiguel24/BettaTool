@@ -11,7 +11,7 @@ from app.api.schemas.report import AssessmentReport
 def export_csv(report: AssessmentReport) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["Criterion", "Value", "Uncertainty", "TSI", "RMSE", "Decision"])
+    writer.writerow(["Criterion", "Value", "Uncertainty", "TSI", "Sigma hat", "Decision"])
     for m in report.measurements:
         writer.writerow([m.label, m.value, m.uncertainty, m.tsi, m.rmse, m.decision])
     return buffer.getvalue()

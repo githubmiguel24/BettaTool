@@ -8,7 +8,7 @@ import numpy as np
 import torch
 
 from app.perception.geometry import AffineTransform
-from app.analytical.calibration import load_uncertainty_scales
+from app.analytical.measurement_factor import load_tsi_scales, load_uncertainty_scales
 from app.analytical.gum_propagation import (
     assemble_block_covariance,
     combined_uncertainty,
@@ -16,11 +16,10 @@ from app.analytical.gum_propagation import (
 )
 from app.analytical.jacobian import numerical_jacobian
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
-from app.analytical.tsi import compute_tsi
+from app.analytical.tsi import compute_tsi, predicted_keypoint_sigma
 from app.decisional.abstention_gate import CriterionResult, evaluate_criterion
 from app.decisional.ibc_standards import CRITERION_THRESHOLDS
-from app.perception.heatmap import batch_heatmaps_to_gaussians, soft_argmax
-from app.perception.tta import flip_averaged_heatmaps
+from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
 
 
@@ -31,27 +30,23 @@ class PipelineOutput:
     criteria: list[CriterionResult]
     keypoints: np.ndarray  # (K, 2)
     covariances: np.ndarray  # (K, 2, 2)
-    visibility: np.ndarray  # (K,) probabilities in [0, 1]
-    low_visibility_keypoints: list[int]
 
 
 class AssessmentPipeline:
-    # sets up model on device and sets cutoff for keypoint visibility
+    # sets up model on device and loads the per-criterion uncertainty scales
     def __init__(
         self,
         model: HRNetKeypointDetector,
         device: str = "cpu",
-        visibility_threshold: float = 0.5,
         uncertainty_scales: dict[str, float] | None = None,
-        use_flip_tta: bool = False,
+        tsi_scales: dict[str, float] | None = None,
     ) -> None:
         self.model = model.to(device).eval()
         self.device = device
-        self.visibility_threshold = visibility_threshold
-        # off by default: flip-TTA doubled inference time for ~1-2% lower error with v3; scales are fitted in the same mode
-        self.use_flip_tta = use_flip_tta
-        # per-criterion post-hoc U scale; None -> read calibration.json if present, {} -> all 1.0
+        # per-criterion post-hoc U scale; None -> read the measurement_factor block of the config, {} -> all 1.0
         self.uncertainty_scales = load_uncertainty_scales() if uncertainty_scales is None else uncertainty_scales
+        # per-criterion scale on sigma_hat for the TSI gate, fitted on val, same measurement_factor block
+        self.tsi_scales = load_tsi_scales() if tsi_scales is None else tsi_scales
 
     @torch.no_grad()
     def analyze(self, image_tensor: torch.Tensor) -> list[CriterionResult]:
@@ -66,29 +61,10 @@ class AssessmentPipeline:
     ) -> PipelineOutput:
         # runs the image tensor through detection, uncertainty math, and threshold checks
         image_on_device = image_tensor.to(self.device)
-        model_out = self.model(image_on_device)
-
-        if len(model_out) == 3:
-            # unpack 3-tuple output and use soft argmax for means in crop space
-            heatmaps, covariances, visibility_logits = model_out
-            if self.use_flip_tta:
-                heatmaps, covariances, visibility_logits = flip_averaged_heatmaps(self.model, image_on_device, model_out)
-            visibility_probs = torch.sigmoid(visibility_logits)[0].cpu().numpy()
-            mu_heatmap_space = soft_argmax(heatmaps)
-            mu_crop_space = HRNetKeypointDetector.mu_to_crop_space(mu_heatmap_space)
-            means = mu_crop_space[0].cpu().numpy()
-            per_keypoint_covariances = covariances[0].cpu().numpy()
-        else:
-            # fallback for older 2-tuple models without a visibility head
-            heatmaps, legacy_covariances = model_out
-            heatmaps_np = heatmaps[0].cpu().numpy()
-            legacy_covariances_np = legacy_covariances[0].cpu().numpy()
-            means, heatmap_covariances = batch_heatmaps_to_gaussians(heatmaps_np)
-            per_keypoint_covariances = legacy_covariances_np if legacy_covariances_np.size else heatmap_covariances
-            visibility_probs = np.ones(means.shape[0])  # assume all visible when head is missing
-
-        # flag keypoints that fall below the visibility threshold
-        low_visibility_keypoints = [i for i, p in enumerate(visibility_probs) if p < self.visibility_threshold]
+        heatmaps, covariances = self.model(image_on_device)
+        mu_crop_space = HRNetKeypointDetector.mu_to_crop_space(soft_argmax(heatmaps))
+        means = mu_crop_space[0].cpu().numpy()
+        per_keypoint_covariances = covariances[0].cpu().numpy()
 
         # map coordinates and covariances back to Orignal image space before running gum math
         if to_original is not None:
@@ -110,16 +86,8 @@ class AssessmentPipeline:
             threshold = CRITERION_THRESHOLDS[criterion_key]
             tsi = compute_tsi(measurement, threshold, jacobian)
 
-            actual_rmse = float(np.sqrt(np.mean(np.diag(block_covariance))))
+            sigma_hat = predicted_keypoint_sigma(jacobian, per_keypoint_covariances) * self.tsi_scales.get(criterion_key, 1.0)
 
-            result = evaluate_criterion(criterion_key, measurement, threshold, uncertainty, tsi, actual_rmse)
-            result.low_visibility_keypoints = low_visibility_keypoints
-            results.append(result)
+            results.append(evaluate_criterion(criterion_key, measurement, threshold, uncertainty, tsi, sigma_hat))
 
-        return PipelineOutput(
-            criteria=results,
-            keypoints=means,
-            covariances=per_keypoint_covariances,
-            visibility=visibility_probs,
-            low_visibility_keypoints=low_visibility_keypoints,
-        )
+        return PipelineOutput(criteria=results, keypoints=means, covariances=per_keypoint_covariances)

@@ -49,7 +49,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     to_original = to_crop.inverse()
 
     bundle = load_model_bundle()
-    pipeline = AssessmentPipeline(bundle.model, device=bundle.device, use_flip_tta=settings.use_flip_tta)
+    pipeline = AssessmentPipeline(bundle.model, device=bundle.device)
 
     try:
         output = pipeline.analyze_detailed(tensor, to_original=to_original)
@@ -59,7 +59,6 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
 
     report = build_report(image_id=file.filename or "upload", criterion_results=output.criteria)
 
-    low_vis = set(output.low_visibility_keypoints)
     report.keypoints = [
         KeypointPrediction(
             index=i,
@@ -71,8 +70,6 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
             sigma_x=float(output.covariances[i, 0, 0] ** 0.5),
             sigma_y=float(output.covariances[i, 1, 1] ** 0.5),
             rho=_correlation(output.covariances[i]),
-            visibility=float(output.visibility[i]),
-            low_visibility=i in low_vis,
         )
         for i in range(len(KEYPOINT_SHORT_CODES))
     ]
@@ -80,13 +77,6 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     report.image_height = int(orig_h)
     report.model_trained = bundle.trained
     report.warnings = [] if bundle.trained else [bundle.status_note]
-
-    if low_vis:
-        names = ", ".join(KEYPOINT_LABELS[i] for i in sorted(low_vis))
-        report.warnings.append(
-            f"Low predicted visibility for: {names}. Criteria depending on these "
-            f"landmarks are less reliable than their stated uncertainty suggests."
-        )
 
     save_report(report)
     return report

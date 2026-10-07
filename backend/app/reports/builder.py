@@ -19,7 +19,7 @@ def build_report(image_id: str, criterion_results: list[CriterionResult]) -> Ass
             value=r.measurement,
             uncertainty=r.uncertainty,
             tsi=r.tsi,
-            rmse=r.actual_rmse,
+            rmse=r.sigma_hat,
             decision=r.decision,
             landmark_indices=CRITERION_LANDMARKS.get(r.criterion_key, []),
         )

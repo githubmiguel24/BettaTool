@@ -16,5 +16,3 @@ class KeypointPrediction(BaseModel):
     sigma_x: float  # sqrt(Sigma[0, 0]) in orig pixels
     sigma_y: float  # sqrt(Sigma[1, 1]) in orig pixels
     rho: float  # correlaton coefficient in [-1, 1]
-    visibility: float  # sigmoid of visibilty head [0, 1]
-    low_visibility: bool

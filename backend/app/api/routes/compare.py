@@ -75,7 +75,7 @@ async def compare_models(file: UploadFile = File(...)) -> ComparisonResponse:
     bundle = load_model_bundle()
     tensor, to_crop = preprocess_image(image)
     try:
-        out = AssessmentPipeline(bundle.model, device=bundle.device, use_flip_tta=settings.use_flip_tta).analyze_detailed(tensor, to_original=to_crop.inverse())
+        out = AssessmentPipeline(bundle.model, device=bundle.device).analyze_detailed(tensor, to_original=to_crop.inverse())
         mfld_pts = predict_keypoints(mfld, image)
     except Exception as exc:  # noqa: BLE001
         logger.exception("Comparison failed on upload %s", file.filename)
