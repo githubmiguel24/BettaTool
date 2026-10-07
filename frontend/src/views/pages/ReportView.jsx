@@ -4,6 +4,7 @@ import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import KeypointSummary from "../../components/KeypointSummary.jsx";
+import { RemoteCompareTab } from "../../components/CompareTab.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
 import { GROUP_LABELS, colorForGroup } from "../../data/keypointGroups.js";
@@ -60,6 +61,7 @@ function ReportView() {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const [tab, setTab] = useState("analysis"); // "analysis" | "compare"
 
   useEffect(() => {
     setReport(undefined);
@@ -141,7 +143,33 @@ function ReportView() {
         </div>
       )}
 
-      <div ref={captureRef} className="grid gap-8 lg:grid-cols-2">
+      <div className="mb-6 flex gap-2 border-b border-slate-200" role="tablist">
+        {[
+          ["analysis", "Analysis"],
+          ["compare", "Compare with MFLD-Net"],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={tab === key}
+            onClick={() => setTab(key)}
+            className={`-mb-px border-b-2 px-5 py-3 text-base font-medium transition ${
+              tab === key
+                ? "border-betta-600 text-betta-700"
+                : "border-transparent text-slate-400 hover:text-slate-600"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "compare" && (
+        <RemoteCompareTab imageUrl={report.imageUrl} name={report.image_id} />
+      )}
+
+      <div ref={captureRef} className={`grid gap-8 lg:grid-cols-2 ${tab === "compare" ? "hidden" : ""}`}>
         {/* Left: image + landmarks + info */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">

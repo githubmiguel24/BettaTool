@@ -193,38 +193,6 @@ function KeypointLayers({
           );
         })}
 
-      {showKeypoints &&
-        segments.map(([ea, eb], i) => {
-          const p = resolve(ea);
-          const q = resolve(eb);
-          if (!p || !q) return null;
-          return (
-            <g key={`seg-${i}`} pointerEvents="none">
-              <line
-                x1={p.x} y1={p.y} x2={q.x} y2={q.y}
-                stroke="#ffffff" strokeWidth={unit * 2} strokeOpacity={0.7}
-                strokeLinecap="round"
-              />
-              <line
-                x1={p.x} y1={p.y} x2={q.x} y2={q.y}
-                stroke="#0891b2" strokeWidth={unit * 1}
-                strokeLinecap="round"
-              />
-              {[p, q].map((pt, j) =>
-                pt.mid ? (
-                  <rect
-                    key={j}
-                    x={pt.x - unit * 1.2} y={pt.y - unit * 1.2}
-                    width={unit * 2.4} height={unit * 2.4}
-                    transform={`rotate(45 ${pt.x} ${pt.y})`}
-                    fill="#0891b2" stroke="#ffffff" strokeWidth={unit * 0.5}
-                  />
-                ) : null,
-              )}
-            </g>
-          );
-        })}
-
       {showKeypoints && showEllipses &&
         keypoints.map((kp) => {
           if (!isLit(kp.index)) return null;
