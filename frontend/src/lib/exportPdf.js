@@ -22,7 +22,8 @@ function toDataUrl(url) {
 
 export async function exportElementToPdf(element, { filename, title }) {
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import("html2canvas"),
+    // html2canvas-pro: the original html2canvas throws on Tailwind v4's oklch() colors.
+    import("html2canvas-pro"),
     import("jspdf"),
   ]);
 

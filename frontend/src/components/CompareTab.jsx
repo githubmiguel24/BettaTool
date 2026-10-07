@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { compareWithMfld, exampleImageUrl, getMfldBenchmark } from "../api/client.js";
+import ZoomableImage from "./ZoomableImage.jsx";
 
 /**
  * "Compare with MFLD-Net" tab of the analysis page.
@@ -34,12 +35,10 @@ function useAbortableLoad(load, deps, enabled) {
   return state;
 }
 
-function Overlay({ imageUrl, data, showOurs, showMfld, showLines, hovered, setHovered }) {
-  const { image_width: w, image_height: h, keypoints } = data;
-  const r = Math.max(w, h) / 170;
+/** Both models' keypoints and the lines between them, drawn inside the zoomable photo (r = marker radius in image px). */
+function OverlayLayers({ r, keypoints, showOurs, showMfld, showLines, hovered, setHovered }) {
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} className="w-full rounded-xl bg-slate-100" role="img" aria-label="Keypoints of both models on the uploaded photo">
-      <image href={imageUrl} x="0" y="0" width={w} height={h} />
+    <>
       {showLines &&
         keypoints.map((k) => (
           <line
@@ -71,13 +70,13 @@ function Overlay({ imageUrl, data, showOurs, showMfld, showLines, hovered, setHo
             onMouseEnter={() => setHovered(k.index)} onMouseLeave={() => setHovered(null)}
           />
         ))}
-    </svg>
+    </>
   );
 }
 
-function Toggle({ checked, onChange, children }) {
+function Toggle({ checked, onChange, children, dark = false }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+    <label className={`flex cursor-pointer items-center gap-2 text-sm ${dark ? "text-slate-200" : "text-slate-600"}`}>
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="h-4 w-4 accent-betta-600" />
       {children}
     </label>
@@ -99,22 +98,35 @@ function LivePanel({ imageUrl, state }) {
   const data = state.data;
   if (!data) return null;
   const s = data.summary;
+  const toolbar = (dark) => (
+    <>
+      <Toggle dark={dark} checked={showOurs} onChange={setShowOurs}>
+        <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool
+      </Toggle>
+      <Toggle dark={dark} checked={showMfld} onChange={setShowMfld}>
+        <span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net
+      </Toggle>
+      <Toggle dark={dark} checked={showLines} onChange={setShowLines}>Difference lines</Toggle>
+    </>
+  );
   const sorted = [...data.keypoints].sort((a, b) => b.distance_pct_body - a.distance_pct_body);
   const maxPct = Math.max(...data.keypoints.map((k) => k.distance_pct_body), DISAGREE_PCT * 2);
 
   return (
     <div className="grid gap-8 lg:grid-cols-2">
       <div>
-        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">
-          <Toggle checked={showOurs} onChange={setShowOurs}>
-            <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: OURS }} /> BettaTool
-          </Toggle>
-          <Toggle checked={showMfld} onChange={setShowMfld}>
-            <span className="inline-block h-3 w-3 rotate-45" style={{ backgroundColor: MFLD }} /> MFLD-Net
-          </Toggle>
-          <Toggle checked={showLines} onChange={setShowLines}>Difference lines</Toggle>
-        </div>
-        <Overlay imageUrl={imageUrl} data={data} showOurs={showOurs} showMfld={showMfld} showLines={showLines} hovered={hovered} setHovered={setHovered} />
+        <div className="mb-3 flex flex-wrap items-center gap-x-5 gap-y-2">{toolbar(false)}</div>
+        <ZoomableImage
+          width={data.image_width}
+          height={data.image_height}
+          imageUrl={imageUrl}
+          ariaLabel="Keypoints of both models on the uploaded photo"
+          toolbar={toolbar}
+        >
+          {(r) => (
+            <OverlayLayers r={r} keypoints={data.keypoints} showOurs={showOurs} showMfld={showMfld} showLines={showLines} hovered={hovered} setHovered={setHovered} />
+          )}
+        </ZoomableImage>
         <p className="mt-3 text-xs text-slate-400">
           Red lines: the two models place that keypoint more than {DISAGREE_PCT}% of the body length apart. MFLD-Net: {data.mfld.note}.
         </p>
@@ -248,7 +260,6 @@ function ExamplesPanel({ data }) {
   if (!examples.length) return null;
   const ex = examples[Math.min(sel, examples.length - 1)];
   const kps = ex.keypoints.filter((k) => k.visible);
-  const r = Math.max(ex.width, ex.height) / 170;
   const times = ex.mfld_mean_px / Math.max(ex.ours_mean_px, 1e-6);
   return (
     <div>
@@ -274,24 +285,34 @@ function ExamplesPanel({ data }) {
               This example photo is not available on this machine (the labelled dataset is not installed here).
             </p>
           ) : (
-            <svg viewBox={`0 0 ${ex.width} ${ex.height}`} className="w-full rounded-xl bg-slate-100" role="img" aria-label="Human labels and both models keypoints on a held-out photo">
-              <image href={exampleImageUrl(ex.image_id)} x="0" y="0" width={ex.width} height={ex.height} onError={() => setImgFailed(true)} />
-              {kps.map((k) => (
-                <g key={k.name}>
-                  <line x1={k.gt[0]} y1={k.gt[1]} x2={k.mfld[0]} y2={k.mfld[1]} stroke={MFLD} strokeWidth={r * 0.4} opacity="0.85" />
-                  <line x1={k.gt[0]} y1={k.gt[1]} x2={k.ours[0]} y2={k.ours[1]} stroke={OURS} strokeWidth={r * 0.4} opacity="0.95" />
-                </g>
-              ))}
-              {kps.map((k) => (
-                <rect key={`m${k.name}`} x={k.mfld[0] - r} y={k.mfld[1] - r} width={2 * r} height={2 * r} transform={`rotate(45 ${k.mfld[0]} ${k.mfld[1]})`} fill={MFLD} stroke="#fff" strokeWidth={r * 0.3} />
-              ))}
-              {kps.map((k) => (
-                <circle key={`o${k.name}`} cx={k.ours[0]} cy={k.ours[1]} r={r} fill={OURS} stroke="#fff" strokeWidth={r * 0.3} />
-              ))}
-              {kps.map((k) => (
-                <circle key={`g${k.name}`} cx={k.gt[0]} cy={k.gt[1]} r={r * 1.5} fill="none" stroke={GT} strokeWidth={r * 0.5} />
-              ))}
-            </svg>
+            <ZoomableImage
+              key={ex.image_id}
+              width={ex.width}
+              height={ex.height}
+              imageUrl={exampleImageUrl(ex.image_id)}
+              ariaLabel="Human labels and both models keypoints on a held-out photo"
+              onImageError={() => setImgFailed(true)}
+            >
+              {(r) => (
+                <>
+                  {kps.map((k) => (
+                    <g key={k.name}>
+                      <line x1={k.gt[0]} y1={k.gt[1]} x2={k.mfld[0]} y2={k.mfld[1]} stroke={MFLD} strokeWidth={r * 0.4} opacity="0.85" />
+                      <line x1={k.gt[0]} y1={k.gt[1]} x2={k.ours[0]} y2={k.ours[1]} stroke={OURS} strokeWidth={r * 0.4} opacity="0.95" />
+                    </g>
+                  ))}
+                  {kps.map((k) => (
+                    <rect key={`m${k.name}`} x={k.mfld[0] - r} y={k.mfld[1] - r} width={2 * r} height={2 * r} transform={`rotate(45 ${k.mfld[0]} ${k.mfld[1]})`} fill={MFLD} stroke="#fff" strokeWidth={r * 0.3} />
+                  ))}
+                  {kps.map((k) => (
+                    <circle key={`o${k.name}`} cx={k.ours[0]} cy={k.ours[1]} r={r} fill={OURS} stroke="#fff" strokeWidth={r * 0.3} />
+                  ))}
+                  {kps.map((k) => (
+                    <circle key={`g${k.name}`} cx={k.gt[0]} cy={k.gt[1]} r={r * 1.5} fill="none" stroke={GT} strokeWidth={r * 0.5} />
+                  ))}
+                </>
+              )}
+            </ZoomableImage>
           )}
           <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-500">
             <span className="flex items-center gap-1.5"><span className="inline-block h-3 w-3 rounded-full border-2" style={{ borderColor: GT }} /> Human label</span>
