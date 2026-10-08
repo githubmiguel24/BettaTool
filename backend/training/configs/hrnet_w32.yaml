@@ -1,51 +1,47 @@
-# Deployed model: noisy-label training for the fin tips + elongated fin targets + EMA. Deep-merged on top of base.yaml.
-#
-#   python -m training.train_hrnet --config training/configs/hrnet_w32.yaml
-#
-# Why: fin-tip error is ~28-32 px (body keypoints 3-10 px). It is a constant ~4.5% of body length for small and large
-# fish (so not resolution-limited), mostly perpendicular to the fin ray, and train error is ~half of val error. That
-# points at label placement noise along the fin outline, not at model capacity. Augmentation stays as in base.yaml
-# (a stronger augmentation / weight-decay run gave no measurable gain).
+# config for training hrnet with noisy labels and teacher distillation on fish fins
 
 experiment_name: hrnet_w32_noisy_labels
 
 loss:
-  # the heatmap loss is KL against a sum-normalised target, so the TARGET SHAPE matters
+  # target shape matters here since heatmp loss is KL vs sum-normalized target
   lambda_heatmap: 1.0
-  # NLL trains sigma only; the position is trained by the L1 / KL / distillation terms (the NLL gradient on mu is
-  # ~(mu - label) / sigma^2, which is a strong pull toward noisy labels when sigma is small).
+  # detaching mu so nLL only trains sigma and doesnt pull toward bad labels
   nll_detach_mu: true
-  # idea 2: fin-tip targets stretched ACROSS the base->tip ray (error is mostly perpendicular to the ray)
+  # stretching targets across the fin ray since error is mostly perpendicular
   heatmap_target_anisotropy:
     enabled: true
-    across_scale: 2.0          # sigma across the ray = 2.0 * heatmap_target_sigma_px (4 vs 2 heatmap px)
+    across_scale: 2.0          # sigma across is double the normal px scale
     keypoints: [dorsal_tip, caudal_tip_upper, caudal_tip_lower, caudal_center, anal_tip]
 
-# idea 1: learn to live with noisy labels
+
+# handling messy human anotations
 noisy_labels:
   fin_keypoints: [dorsal_tip, caudal_tip_upper, caudal_tip_lower, caudal_center, anal_tip]
-  ambiguous_weight: 0.5        # keypoints the annotator flagged "ambiguous" (flag 1) count half in the L1 / heatmap losses
-  distill_alpha_ambiguous: 0.5 # position target = (1 - a) * label + a * EMA-teacher prediction ...
-  distill_alpha_fin: 0.25      # ... a = 0.25 on every fin keypoint, plus 0.5 on flagged ones (summed, capped at 1)
-  distill_start_epoch: 15      # stage-2 epoch from which the teacher is used (the EMA needs time to become good)
-  trim_fraction: 0.10          # ignore the worst 10% of fin-tip residuals in each batch ...
-  trim_start_epoch: 15         # ... from this stage-2 epoch on
+  ambiguous_weight: 0.5        # flagged keypoints only count half for loss
+  distill_alpha_ambiguous: 0.5 # how much we trust the EMA teacher for fuzzy labels
+  distill_alpha_fin: 0.25      # teacher weight on all fins capped at 1 total
+  distill_start_epoch: 15      # wait for EMA to actually get good before using it
+  trim_fraction: 0.10          # drop the worst 10 percent of predictions
+  trim_start_epoch: 15         # start trimming bad preds from this epoch
+
 
 training:
-  stage2_epochs: 80            # was 110; the teacher forward + raw/EMA evaluation add ~35% per epoch
+  stage2_epochs: 80            # max since the training never reaches 80 and beause of the patience part
   ema:
     enabled: true
-    decay: 0.998               # ~500-step horizon, i.e. roughly the last 7 epochs (72 optimizer steps per epoch)
+    decay: 0.998               # 500 step horizon so about the last 7 epochs
   early_stopping:
-    metric: val_nll            # val_radial_error_px picks stage-2 epoch 0 (before the NLL is trained), which is the wrong rule
+    metric: val_nll            # radial error picks epoch 0 which is dead wrong
   checkpoint:
     save_every_epoch: true
-    keep: [best, best_nll, best_tip, last]   # best = early-stopping metric, best_nll, best_tip = lowest fin-tip error
+    keep: [best, best_nll, best_tip, last]   # keeping tracking of best metrics and lowest fin error
 
 logging:
   log_val_calibration: true
 
-# per-criterion measurement factors
+
+
+# scale factors for each measurement
 measurement_factor:
   caudal-spread-angle: {scale: 2.382401, tsi_scale: 2.382401}
   dorsal-body-ratio: {scale: 1.820048, tsi_scale: 1.820048}

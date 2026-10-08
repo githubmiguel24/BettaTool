@@ -1,9 +1,4 @@
-# Shared defaults for every experiment config. An experiment config (e.g.
-# hrnet_w32.yaml) is loaded and deep-merged on top of this file by
-# training/utils/config.py — only the keys that differ need to be repeated
-# there. Nothing here is read positionally; every hyperparameter,  path, and
-# convention used anywhere in training/ or app/perception/ must trace back
-# to a key in this file or its overrides. No magic numbers in code.
+# base defaults for all exp configs. all hyperparameters trace back here so no magic numbers
 
 seed: 42
 deterministic_cudnn: true
@@ -16,7 +11,7 @@ paths:
   splits_dir: data/splits
   runs_dir: training/runs
 
-# --- dataset size --------------------------------------------------------
+# dataset size and split config
 dataset:
   expected_total_images: 1647
   splits:
@@ -26,24 +21,19 @@ dataset:
   group_by: specimen_id
   stratify_by: [source, color_morph, has_occlusion]
 
-# --- image geometry -------------------------------------------------------
+# image geo settings
 image:
-  input_size: 384          # crop space, square, letterbox-padded
-  heatmap_size: 96          # stride 4 relative to input_size
+  input_size: 384          # sqaure crop space padded 
+  heatmap_size: 96          # stride 4 relative to input size
   stride: 4
-  bbox_padding: 0.15        # fraction of fish_box size added on each side before crop
+  bbox_padding: 0.15        # fraction of fish box added to each side before cropping
   imagenet_mean: [0.485, 0.456, 0.406]
   imagenet_std: [0.229, 0.224, 0.225]
 
-# --- units contract --------------------------------------------------------
-# heatmap space  : raw soft-argmax output, 96x96
-# crop space     : heatmap_space * stride -> 384x384; training loss and
-#                  Sigma prediction both live here
-# original space : variable per image; evaluation metrics and the downstream
-#                  GUM tier live here. app/perception/geometry.py is the only
-#                  place that converts between these three spaces.
+# handles units between 96x96 heatmap space 384x384 crop space and original img space
+# geomtry.py is the only place doing the math between these spaces
 units:
-  sigma_space: crop           # Sigma is predicted and clamped in crop-space px
+  sigma_space: crop           # predict and clamp sigma in crop space pixels
   sigma_min_px: 0.5
   sigma_max_px: 64.0
   rho_max: 0.95
@@ -73,25 +63,25 @@ augmentation:
 
 model:
   backbone: hrnet_w32
-  backbone_source: auto      # auto | timm | custom  (see app/perception/hrnet.py)
-  pretrained: imagenet       # imagenet | coco_pose | none  -- see OPEN-QUESTIONS.md #1
+  backbone_source: auto      # auto timm or custom
+  pretrained: imagenet       # imagenet coco_pose or none
   detach_mu_for_covariance_stage1: true
   detach_mu_for_covariance_stage2: false
 
 loss:
-  heatmap_target_sigma_px: 2.0     # Gaussian target sigma, at heatmap (96x96) scale
+  heatmap_target_sigma_px: 2.0     # gaussian target sigma at 96x96 scale
   lambda_heatmap: 1.0
   lambda_mu_l1: 1.0
   lambda_nll_target: 1.0
-  nll_ramp_epochs: 10              # linear ramp of lambda_nll over first N epochs of stage 2
-  beta_nll: 0.5                    # beta-NLL exponent (Seitzer et al. 2022); 0 disables it
+  nll_ramp_epochs: 10              # linear ramp for lambda_nll over stage 2 epochs
+  beta_nll: 0.5                    # seitzer beta-nll exponent where 0 is disbled
   grad_clip_norm: 1.0
 
 training:
   stage1_epochs: 40
   stage2_epochs: 110
   batch_size: 8
-  grad_accum_steps: 2              # effective batch = batch_size * grad_accum_steps = 16
+  grad_accum_steps: 2              # effective batch is batch_size times this
   amp: true
   optimizer:
     name: adamw
@@ -114,10 +104,10 @@ training:
 
 evaluation:
   pck_alphas: [0.02, 0.05, 0.10]
-  body_length_landmarks: [snout_tip, peduncle_midpoint]  # peduncle midpoint = mean(peduncle_top, peduncle_bottom)
+  body_length_landmarks: [snout_tip, peduncle_midpoint]  # peduncle midpoint is mean of top and bottom
   coverage_levels: [0.68, 0.95]
   bootstrap_resamples: 2000
-  ci_method: wilson                # wilson | clopper_pearson (near 0/1 boundaries)
+  ci_method: wilson                # wilson or clopper_pearson near boundries
   export_best_worst_k: 20
 
 logging:
