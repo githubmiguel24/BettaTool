@@ -1,7 +1,6 @@
 # Two-stage training 
 # Stage 1 warms up heatmap and L1 loss 
 #  Stage 2 ramps in Gaussian NLL with a fresh LR schedule
-# Pass --resume <run_dir>/checkpoints/last.pt to continue an interrupted run (best.pt only holds model weights)
 
 from __future__ import annotations
 
@@ -139,8 +138,8 @@ def run_stage(
     )
 
     best_val_metric = float("inf")
-    best_val_tip = float("inf")  # lowest val fin-tip + caudal-centre error, saved as best_tip.pt
-    best_val_nll = float("inf")  # stage 2 only: lowest val NLL seen, saved as best_nll.pt
+    best_val_tip = float("inf")  # lowest val fin-tip + caudal-centre error
+    best_val_nll = float("inf")  # stage 2 only: lowest val NLL seen
     epochs_without_improvement = 0
     checkpoints_dir = run_dir / "checkpoints"
 
@@ -214,13 +213,16 @@ def run_stage(
                             weights = weights * (~(candidates & (l1.detach() > threshold))).float()
                 loss_mu = ((l1 * weights).sum(-1) / weights.sum(-1).clamp_min(1e-8)).mean()
 
+                #basically: loss = λ_heatmap * loss_heatmap + λ_mu_l1 * losss+mu
                 loss = loss_cfg["lambda_heatmap"] * loss_heatmap + loss_cfg["lambda_mu_l1"] * loss_mu
 
                 loss_nll = torch.tensor(0.0, device=device)
                 if stage == 2 and lambda_nll > 0:
                     # with nll_detach_mu the NLL only trains the covariance (sigma), not the position
-                    mu_for_nll = mu_crop.detach() if loss_cfg.get("nll_detach_mu", False) else mu_crop
+                    mu_for_nll = mu_crop.detach() if loss_cfg.get("nll_detach_mu", False) else mu_crop                    
+                    #loss = loss + lambda_nll * loss_nll
                     loss_nll = gaussian_nll_loss(mu_for_nll, covariances, gt_crop, visibility_mask, beta=loss_cfg["beta_nll"])
+                    
                     loss = loss + lambda_nll * loss_nll
 
                 loss = loss / cfg["training"]["grad_accum_steps"]

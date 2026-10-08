@@ -1,11 +1,3 @@
-"""Compare our v3 with the retrained MFLD-Net (betta_full) on identical images, from MFLD-Net's own prediction dumps.
-
-    python -m training.mfld_full_comparison
-
-MFLD dumps (mfld-net/predictions_{val,test}.npz) hold pred_mu in original-photo pixels, in our keypoint order (see load_mfld).
-Ground truth is our annotation file for both models.
-"""
-
 from __future__ import annotations
 
 import json

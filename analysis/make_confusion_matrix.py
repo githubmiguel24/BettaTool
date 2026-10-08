@@ -1,29 +1,3 @@
-"""Confusion matrices for the Pass/Fault/Defer gate on the TEST split. Read-only: loads an existing
-predictions.npz and the config's measurement_factor block, computes nothing new about the model, retrains nothing, and does
-not touch the gate's threshold logic — it calls the SAME functions app/pipeline.py uses
-(app.analytical.jacobian.numerical_jacobian, app.analytical.tsi.*, app.decisional.rule_engine.classify)
-so the matrices describe exactly what the deployed gate would decide.
-
-    cd backend
-    PYTHONPATH=.. python -m analysis.make_confusion_matrix --mode both
-
-Decision rule per criterion (exactly app/decisional/abstention_gate.py):
-    TSI       = |y_hat - tau| / (k * ||J||)          k = 2 (COVERAGE_FACTOR_K)
-    sigma_hat = sqrt(mean predicted x/y variance of the keypoints the criterion uses)
-    decision  = Confident  if  s_c * sigma_hat < TSI   else  Defer to Judge
-                s_c = 1.0 in --raw mode (the TSI rule as written), the per-criterion tsi_scale from
-                measurement_factor block of the config (fitted on VAL only) in --recal mode (the deployed gate)
-    when Confident: Pass/Fault from app.decisional.rule_engine.classify(criterion, y_hat)
-Ground truth label uses the same classify() on the GROUND-TRUTH keypoints' measurement, not a judge scorecard.
-Fault = positive class. Each criterion is scored on every test image where the keypoints THAT criterion uses are labelled
-(training.mfld_full_comparison.criterion_keypoints), so n can differ between criteria (247 vs 242 on the test split).
-
-Outputs (into --out-dir, default "confusion_matrices_out/"):
-    confusion_matrices.csv         one row per criterion + "overall", per mode run
-    confusion_<criterion>_<mode>.png, confusion_overall_<mode>.png
-    console summary table
-"""
-
 from __future__ import annotations
 
 import argparse

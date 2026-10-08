@@ -1,23 +1,3 @@
-"""Confusion matrices for MFLD-Net's Pass/Fault decisions on the TEST split, for direct comparison with
-make_confusion_matrix.py's output for our system. Read-only: loads MFLD-Net's own prediction dump
-(mfld-net/predictions_test.npz) and our ground truth, retrains and changes nothing.
-
-    cd backend
-    PYTHONPATH=.. python -m analysis.make_confusion_matrix_mfld
-
-MFLD-Net has no covariance/uncertainty head, so it has no abstention gate: every criterion assessment is a
-FORCED decision (Pass or Fault, never Defer). That is not directly comparable to our deployed-gate numbers
-(which defer about 28% of cases), so this script reports three rows per criterion, all on the identical
-per-criterion image set used by make_confusion_matrix.py (every test image where the criterion's own keypoints are labelled):
-
-    mfld_forced   MFLD-Net,  no gate (it has none)              <- MFLD-Net's real-world behaviour
-    ours_forced   our model, gate disabled (apples-to-apples with MFLD-Net's lack of a gate)
-    ours_recal    our model, the deployed TSI gate, tsi_scale * sigma_hat < TSI (defers when uncertain)   <- our real-world behaviour
-
-Ground truth and the keypoint order come from training/mfld_full_comparison.py's verified mapping (MFLD-Net's
-predictions_*.npz columns are already in OUR keypoint order; keypoint_names has two columns mislabelled but the
-data columns are not swapped — see that module's load_mfld() docstring for the verification).
-"""
 
 from __future__ import annotations
 

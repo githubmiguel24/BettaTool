@@ -17,20 +17,12 @@ paths:
   runs_dir: training/runs
 
 # --- dataset size --------------------------------------------------------
-# Updated 2026-09-15: the annotated set now totals ~1,750 images (was
-# ~1,500 at the time Build Prompt v1 / the manuscript's Chapter 3 draft was
-# written). Splits are expressed as fractions so this number never has to
-# be hardcoded anywhere else — training/splitting.py reads whatever count
-# actually exists in the annotation file and applies these fractions.
 dataset:
   expected_total_images: 1647
   splits:
     train: 0.70
     val: 0.15
     test: 0.15
-  # Add a 4th partition (e.g. `calib: 0.10`, renormalizing the rest) by
-  # editing this mapping alone — training/splitting.py iterates over
-  # whatever partitions are declared here.
   group_by: specimen_id
   stratify_by: [source, color_morph, has_occlusion]
 

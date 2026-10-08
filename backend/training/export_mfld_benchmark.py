@@ -1,12 +1,3 @@
-"""Write backend/app/data/mfld_benchmark.json: the measured our-model-vs-MFLD-Net numbers shown in the app's comparison tab.
-
-    python -m training.export_mfld_benchmark
-
-Nothing here is typed by hand: every number is computed from (a) our v3 predictions on the test split and (b) the prediction
-dump of the retrained MFLD-Net (mfld-net/predictions_test.npz), both scored against OUR annotations on identical images.
-The OKS/AP figures of MFLD-Net are the ones its own evaluate.py reported (they need its private crop windows).
-"""
-
 from __future__ import annotations
 
 import json
