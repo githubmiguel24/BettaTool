@@ -8,6 +8,7 @@ from datetime import datetime
 from app.api.schemas.measurement import MeasurementResult
 from app.api.schemas.report import AssessmentReport
 from app.decisional.abstention_gate import CriterionResult
+from app.reports.assessment import assess_quality
 from app.reports.labels import CRITERION_LABELS, CRITERION_LANDMARKS
 
 
@@ -31,4 +32,5 @@ def build_report(image_id: str, criterion_results: list[CriterionResult]) -> Ass
         image_id=image_id,
         analysis_date=datetime.utcnow(),
         measurements=measurements,
+        final_assessment=assess_quality(measurements),
     )

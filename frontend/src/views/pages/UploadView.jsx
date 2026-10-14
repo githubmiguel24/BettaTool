@@ -3,6 +3,7 @@ import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import KeypointSummary from "../../components/KeypointSummary.jsx";
+import FinalAssessment from "../../components/FinalAssessment.jsx";
 import CompareTab from "../../components/CompareTab.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
@@ -192,7 +193,8 @@ function UploadView() {
         </div>
       )}
 
-      <div ref={captureRef} className={`grid gap-8 lg:grid-cols-2 ${tab === "compare" ? "hidden" : ""}`}>
+      <div ref={captureRef} className={tab === "compare" ? "hidden" : ""}>
+        <div className="grid gap-8 lg:grid-cols-2">
         {/* Left: image upload + overlay */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
@@ -375,6 +377,8 @@ function UploadView() {
             })}
           </div>
 
+          {report && status === "done" && <FinalAssessment report={report} />}
+
           <p className="mt-5 text-center text-sm text-slate-400">
             {status === "done"
               ? `Report ${report.id.slice(0, 8)} · ${report.keypoints.length} landmarks localized${saveState === "saved" ? " · saved to history" : ""}`
@@ -415,6 +419,7 @@ function UploadView() {
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       <ConfirmDialog
