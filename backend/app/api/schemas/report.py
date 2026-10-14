@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+from app.api.schemas.assessment import FinalAssessment
 from app.api.schemas.keypoint import KeypointPrediction
 from app.api.schemas.measurement import MeasurementResult
 
@@ -15,6 +16,7 @@ class AssessmentReport(BaseModel):
     analysis_date: datetime
     model_name: str = "HRNet-W32 (probabilistic heatmap)"
     measurements: list[MeasurementResult]
+    final_assessment: FinalAssessment | None = None
 
     # perceptual tier output in original image pixls
     keypoints: list[KeypointPrediction] = []

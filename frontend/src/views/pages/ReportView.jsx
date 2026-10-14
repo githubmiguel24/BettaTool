@@ -4,6 +4,7 @@ import DashboardLayout from "../../components/DashboardLayout.jsx";
 import ConfirmDialog from "../../components/ConfirmDialog.jsx";
 import ExportPdfButton from "../../components/ExportPdfButton.jsx";
 import KeypointSummary from "../../components/KeypointSummary.jsx";
+import FinalAssessment from "../../components/FinalAssessment.jsx";
 import { RemoteCompareTab } from "../../components/CompareTab.jsx";
 import ImageStage, { OverlayToggles } from "../../components/ImageStage.jsx";
 import { measurements as CRITERIA } from "../../data/measurements.js";
@@ -168,8 +169,8 @@ function ReportView() {
       {tab === "compare" && (
         <RemoteCompareTab imageUrl={report.imageUrl} name={report.image_id} />
       )}
-
-      <div ref={captureRef} className={`grid gap-8 lg:grid-cols-2 ${tab === "compare" ? "hidden" : ""}`}>
+      <div ref={captureRef} className={tab === "compare" ? "hidden" : ""}>
+        <div className="grid gap-8 lg:grid-cols-2">
         {/* Left: image + landmarks + info */}
         <div className="space-y-8">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-slate-100">
@@ -293,6 +294,8 @@ function ReportView() {
             })}
           </div>
 
+          <FinalAssessment report={report} />
+
           <div className="mt-5 flex flex-wrap items-center justify-between gap-4 border-t border-slate-100 pt-5">
             <div className="flex items-center gap-5 text-sm text-slate-500">
               <span className="flex items-center gap-2">
@@ -328,6 +331,7 @@ function ReportView() {
             </div>
           </div>
         </div>
+      </div>
       </div>
 
       <ConfirmDialog
