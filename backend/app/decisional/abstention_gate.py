@@ -1,4 +1,18 @@
-# handles selective abstention - only classify if confident, otherwise defer to human
+# =============================================================================
+# Program Title: Abstention Gate for Deferral
+# Programmers: Daanay, Maraño, Trinidad, Verceles
+# System Fit:  Part of the Decisional tier/module, 
+#               its called once per criterion, the output
+#               is used in the Assessment Report.
+# Written: September 12, 2026
+# Revised: October 14, 2026 
+# Purpose:  Main gate that decides if the output can be trusted.
+#           It defers when it cannot trust its output. 
+# Data Structure: DataClass named criterionresult
+# Algorithm: N/A
+# Control: If/else conditionals
+# =============================================================================
+
 from __future__ import annotations
 from dataclasses import dataclass
 
@@ -9,12 +23,12 @@ from app.decisional.rule_engine import classify
 class CriterionResult:
     criterion_key: str
     measurement: float
-    threshold: float  # tau compared against for audit
-    uncertainty: float  # reported margin of error U(y) = s_c * k * sqrt(J Sigma J^T); not used for the decision
-    tsi: float  # threshold sensitivity index in px
-    sigma_hat: float  # calibrated predicted keypoint uncertainty in px, compared against tsi
-    decision: str  # pass, fault, or defer
-    label: str  # what the rule engine actually says
+    threshold: float  
+    uncertainty: float 
+    tsi: float 
+    sigma_hat: float 
+    decision: str  
+    label: str 
 
 
 def evaluate_criterion(
@@ -25,6 +39,7 @@ def evaluate_criterion(
     tsi: float,
     sigma_hat: float,
 ) -> CriterionResult:
+
     # evaluates criterion and defers when the predicted keypoint uncertainty reaches the TSI
     label = classify(criterion_key, measurement)
     if not is_confident(sigma_hat, tsi):
@@ -34,7 +49,7 @@ def evaluate_criterion(
         if label in ("Pass", "Ideal"):
             decision = "Confident Pass"
         elif criterion_key == "caudal-spread-angle":
-            # still a fault, but say how severe (Slight Fault / Major Fault / Disqualify)
+            # shows if the fault is Slight Fault / Major Fault / Disqualify
             decision = f"Confident {label}"
         else:
             decision = "Confident Fault"

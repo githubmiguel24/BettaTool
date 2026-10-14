@@ -1,5 +1,3 @@
-"""Derives an overall quality assessment from confident criterion decisions."""
-
 from __future__ import annotations
 
 from app.api.schemas.assessment import FinalAssessment

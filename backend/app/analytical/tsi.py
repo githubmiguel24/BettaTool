@@ -1,3 +1,18 @@
+# =============================================================================
+# Program Title: Threshold Sensitivity Index (TSI)
+# Programmers: Daanay, Maraño, Trinidad, Verceles
+# System Fit:  Part of the Analytical tier/module, 
+#               its output is used by the decisional module.
+# Written: September 11, 2026
+# Revised: October 14, 2026 
+# Purpose:  Computes the TSI, which is the largest tolerable
+#           keypoint error and the predicted keypoint error
+# Data Structure: NumPy arrays for: covariance matrix and jacobian matrix
+# Algorithm:
+# Control: 
+# =============================================================================
+
+ 
 # threshold sensitivity index (TSI) and the deferral rule built on it
 
 from __future__ import annotations
@@ -13,21 +28,18 @@ def compute_tsi(
     jacobian: np.ndarray,
     k: float = COVERAGE_FACTOR_K,
 ) -> float:
-    # largest isotropic keypoint error (px) for which k * sigma * ||J|| still stays inside |y_hat - tau|
+    # largest isotropic keypoint error (px)
     margin = abs(measurement - threshold)
     sensitivity_norm = float(np.sqrt(jacobian @ jacobian.T))
-
+    
+    #prevent div by zero
     if sensitivity_norm < 1e-12:
-        # insensitive to keypont error here
         return float("inf")
 
     return margin / (k * sensitivity_norm)
 
 
 def predicted_keypoint_sigma(jacobian: np.ndarray, per_keypoint_covariances: np.ndarray) -> float:
-    # sigma_hat: the isotropic keypoint error (px) that would produce the same measurement uncertainty as the predicted
-    # covariances, sqrt(J Sigma J^T) / ||J||. It weights each keypoint by how much the criterion depends on it and keeps
-    # the direction of each covariance, which a plain average of the predicted sigmas does not.
     norm = float(np.sqrt(jacobian @ jacobian))
     if norm < 1e-12:
         return 0.0

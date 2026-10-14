@@ -1,3 +1,18 @@
+# =============================================================================
+# Program Title: IBC Standards Criterias
+# Programmers: Daanay, Maraño, Trinidad, Verceles
+# System Fit:  Part of the Decisional tier/module, 
+#              that holds the constants of the metrics
+#              used by rule_engine.py
+# Written: September 12, 2026
+# Revised: October 14, 2026 
+# Purpose: This stores the IBC standards' thresholds for 
+#           each of the five criteria. 
+# Data Structure: DataClass only
+# =============================================================================
+
+
+
 # ibc exhibition standrds thresholds for the five measurable criteria
 from __future__ import annotations
 
