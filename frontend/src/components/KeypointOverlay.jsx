@@ -4,10 +4,9 @@
  * zoom), so this component does no scaling math of its own. `unit` is the
  * current viewBox size / 400, keeping markers a constant on-screen size.
  *
- * Each landmark is a dot plus its 1-sigma uncertainty ellipse, so the
- * covariance head's output is visible rather than buried in the JSON. The
- * optional heatmap draws a warm blob per landmark whose radius follows that
- * same sigma: a confident landmark is a tight hot spot, an uncertain one blooms.
+ * Each landmark is a dot. The optional heatmap draws a warm blob per landmark
+ * whose radius follows the covariance head's sigma: a confident landmark is a
+ * tight hot spot, an uncertain one blooms.
  *
  * Dots are colored by the API's `group` field (head / dorsal / caudal / anal
  * fin).
@@ -28,32 +27,12 @@ const SKELETON_EDGES = [
   [6, 8], [7, 9], [8, 9], [6, 10], [10, 11], [11, 12], [0, 12],
 ];
 
-/** Covariance ellipse from sigma_x, sigma_y, rho -> (rx, ry, rotation deg). */
-function ellipseParams(sigmaX, sigmaY, rho) {
-  const vx = sigmaX * sigmaX;
-  const vy = sigmaY * sigmaY;
-  const cxy = rho * sigmaX * sigmaY;
-  const tr = vx + vy;
-  const det = vx * vy - cxy * cxy;
-  const disc = Math.max(0, (tr * tr) / 4 - det);
-  const l1 = tr / 2 + Math.sqrt(disc);
-  const l2 = Math.max(1e-9, tr / 2 - Math.sqrt(disc));
-  const angle =
-    Math.abs(cxy) < 1e-12
-      ? vx >= vy
-        ? 0
-        : 90
-      : (Math.atan2(l1 - vx, cxy) * 180) / Math.PI;
-  return { rx: Math.sqrt(l1), ry: Math.sqrt(l2), angle };
-}
-
 function KeypointLayers({
   keypoints,
   unit,
   idPrefix,
   showKeypoints = true,
   showHeatmap = false,
-  showEllipses = true,
   showSkeleton = false,
   highlightIndices = null,
   criterionKey = null,
@@ -187,27 +166,6 @@ function KeypointLayers({
                 ) : null,
               )}
             </g>
-          );
-        })}
-
-      {showKeypoints && showEllipses &&
-        keypoints.map((kp) => {
-          if (!isLit(kp.index)) return null;
-          const { rx, ry, angle } = ellipseParams(kp.sigma_x, kp.sigma_y, kp.rho);
-          return (
-            <ellipse
-              key={`e-${kp.index}`}
-              cx={kp.x}
-              cy={kp.y}
-              rx={Math.max(rx, unit * 0.5)}
-              ry={Math.max(ry, unit * 0.5)}
-              transform={`rotate(${angle} ${kp.x} ${kp.y})`}
-              fill="#f59e0b"
-              fillOpacity={0.16}
-              stroke="#f59e0b"
-              strokeWidth={unit * 0.4}
-              strokeOpacity={0.6}
-            />
           );
         })}
 

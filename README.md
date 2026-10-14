@@ -16,9 +16,3 @@ How it works, in three tiers:
    gives the largest keypoint error, in pixels, that each rule can tolerate.
 3. **Decisional:** the IBC rule engine labels each measurement. If the model's predicted keypoint error is below the TSI the
    result is **Confident Pass** or **Confident Fault**; otherwise it is **Defer to Judge** and a human decides.
-
-The system is decision support, not a replacement for judges. A "Compare with MFLD-Net" tab shows how a deterministic
-baseline landmark detector differs from this model.
-
-Layout: `backend/` (FastAPI service and training code), `frontend/` (React dashboard), `analysis/` (confusion-matrix
-scripts), `mfld-net/` (the MFLD-Net baseline, a separate repository).
