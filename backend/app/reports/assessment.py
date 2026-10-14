@@ -40,7 +40,7 @@ def assess_quality(measurements: list[MeasurementResult]) -> FinalAssessment:
         quality = QUALITY_TIERS[passed]
         summary = (
             f"{passed} of {total} criteria passed confidently, {faulted} had a "
-            f"confident fault, and {deferred} need judge review. This project "
+            f"confident fault, and {deferred} need judge review. The "
             "quality tier is based on the number of confidently passed criteria."
         )
 

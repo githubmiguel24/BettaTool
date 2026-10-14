@@ -42,17 +42,6 @@ function FinalAssessment({ report }) {
           </p>
         </div>
       </div>
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/70">
-        <div
-          className="h-full rounded-full bg-current transition-all"
-          style={{ width: `${percentage}%` }}
-        />
-      </div>
-      <p className="mt-2 text-xs opacity-75">
-        Quality tier is a project rubric based on confidently passed criteria.
-        Decision confidence is the share confidently classified (not a probability
-        of correctness); deferred criteria need judge review.
-      </p>
     </section>
   );
 }

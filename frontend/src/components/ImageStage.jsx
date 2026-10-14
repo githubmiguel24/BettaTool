@@ -1,15 +1,4 @@
-/**
- * The annotated-image viewer shared by the Upload and Report pages.
- *
- * - While the pipeline runs (`loading`, no report yet) the plain photo is shown
- *   under a decorative "annotating" animation. It is NOT model output: the
- *   dots are fixed decoration and vanish when real results arrive.
- * - Once a report exists, the photo is drawn INSIDE an <svg> together with the
- *   keypoint layers, so zooming is just animating the viewBox and the overlay
- *   can never drift out of alignment with the image.
- * - Selecting a measurement zooms to the landmarks it reads; clicking the
- *   image opens a lightbox with wheel-zoom and drag-to-pan.
- */
+//annotating animation
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
