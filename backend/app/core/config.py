@@ -1,5 +1,3 @@
-"""Application settings, loaded from environment variables (see `.env`)."""
-
 from pydantic_settings import BaseSettings
 
 

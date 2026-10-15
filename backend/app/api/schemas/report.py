@@ -14,7 +14,7 @@ class AssessmentReport(BaseModel):
     fish_class: str = "Halfmoon Longfin"
     image_id: str
     analysis_date: datetime
-    model_name: str = "HRNet-W32 (probabilistic heatmap)"
+    model_name: str = "Betta Quality Assessment Model"
     measurements: list[MeasurementResult]
     final_assessment: FinalAssessment | None = None
 

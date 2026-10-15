@@ -1,4 +1,28 @@
-# per-criterion measurement factors 
+# =============================================================================
+# Program Title : Per-Criterion Measurement Factors
+# Programmers   : Trinidad, Daanay
+# System Fit    : Part of the Analytical module.
+#                 the main pipiline in app/pipeline.py loads the scales when AssessmentPipeline is
+#                 created which is one scale for the reported margin of error U(y) and
+#                 one for sigma_hat in the TSI gate (tsi.py). Both are stored in
+#                 the "measurement_factor" block of training/configs/hrnet_w32.yaml.
+# Written       : September 10, 2026
+# Revised       : October 14, 2026 
+# Purpose       : Loads, and on validation data fits, the per-criterion scales
+#                 that make the reported uncertainty and the TSI gate match the
+#                 errors actually observed. If no scale is configured, a
+#                 criterion keeps a scale of 1.0 (no correction).
+# Data Structure: Data: dict[str, float] (criterion key -> scale); the parsed
+#                 YAML dictionary; Path objects; NumPy arrays of absolute errors
+#                 and uncertainties; constants DEFAULT_CONFIG_PATH,
+#                 CONFIG_ENV_VAR and CONFIG_KEY.
+# Algorithm     : conformal calibration. For each case, ratio =
+#                 |error| / U; the scale is the quantile of the ratios at level
+#                 ceil((n + 1) * coverage) / n (capped at 1), so scale * U covers
+#                 about 95% of cases. Config path: argument, then the
+#                 BETTA_CONFIG_PATH environment variable, then the default file.
+# Control       : sequential
+# =============================================================================
 from __future__ import annotations
 
 import math
