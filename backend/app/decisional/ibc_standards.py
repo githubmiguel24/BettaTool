@@ -1,6 +1,6 @@
 # =============================================================================
 # Program Title: IBC Standards Criterias
-# Programmers: Daanay, Maraño, Trinidad, Verceles
+# Programmers: Daanay, Maraño, 
 # System Fit:  Part of the Decisional tier/module, 
 #              that holds the constants of the metrics
 #              used by rule_engine.py

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import io
+from PIL import Image
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
@@ -41,6 +43,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
 
     try:
         image = decode_image(data)
+        pil_image = Image.open(io.BytesIO(data)).convert("RGB")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -50,16 +53,22 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     tensor, to_crop = preprocess_image(image)
     to_original = to_crop.inverse()
 
-    pipeline = AssessmentPipeline(bundle.model, device=bundle.device)
+    pipeline = AssessmentPipeline(bundle.model, device="cuda") #device = bundle.device for cpu
 
     try:
-        output = pipeline.analyze_detailed(tensor, to_original=to_original)
+        # Pass the pil_image into the raw_image parameter
+        output = pipeline.analyze_detailed(tensor, raw_image=pil_image, to_original=to_original)
+        
+    except ValueError as exc:
+        logger.warning("Upload rejected: %s", str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        
     except Exception as exc:  # noqa: BLE001 - return 500 error but dont leak tracback
         logger.exception("Pipeline failed on upload %s", file.filename)
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {exc}") from exc
 
     report = build_report(image_id=file.filename or "upload", criterion_results=output.criteria)
-
+    
     report.keypoints = [
         KeypointPrediction(
             index=i,

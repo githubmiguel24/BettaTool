@@ -1,6 +1,6 @@
 # =============================================================================
 # Program Title : IBC Morphometric Functions
-# Programmers   : Trinidad, C. M. L.; Daanay, K. M. M.; Verceles, R. C. S.
+# Programmers   : Daanay, Maraño, Trinidad, Verceles
 # System Fit    : Betta Fish Quality Assessment Model > Analytical Tier.
 #                 app/pipeline.py loops over MORPHOMETRIC_FUNCTIONS and, for each
 #                 criterion, passes the 26-value keypoint vector from the

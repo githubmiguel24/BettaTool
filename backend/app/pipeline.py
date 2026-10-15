@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from transformers import pipeline
 
 import numpy as np
 import torch
@@ -17,8 +18,7 @@ from app.analytical.gum_propagation import (
 from app.analytical.jacobian import numerical_jacobian
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
 from app.analytical.tsi import compute_tsi, predicted_keypoint_sigma
-from app.decisional.abstention_gate import CriterionResult, evaluate_criterion
-from app.decisional.ibc_standards import CRITERION_THRESHOLDS
+from app.decisional.rule_engine import CriterionResult, evaluate_criterion, CRITERION_THRESHOLDS
 from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
 
@@ -48,17 +48,38 @@ class AssessmentPipeline:
         # per-criterion scale on sigma_hat for the TSI gate, fitted on val, same measurement_factor block
         self.tsi_scales = load_tsi_scales() if tsi_scales is None else tsi_scales
 
+        #initialization for the identification check
+        clip_device = 0 if "cuda" in device else -1
+        self.classifier = pipeline(
+            "zero-shot-image-classification", 
+            model="openai/clip-vit-base-patch32", 
+            device=clip_device
+        )
     @torch.no_grad()
-    def analyze(self, image_tensor: torch.Tensor) -> list[CriterionResult]:
+    def analyze(self, image_tensor: torch.Tensor, raw_image) -> list[CriterionResult]:
         # wrapper around analyze_detailed that just returns the criteria list
-        return self.analyze_detailed(image_tensor).criteria
+        return self.analyze_detailed(image_tensor, raw_image=raw_image).criteria
 
     @torch.no_grad()
     def analyze_detailed(
         self,
         image_tensor: torch.Tensor,
+        raw_image = None, # Make it optional
         to_original: AffineTransform | None = None,
     ) -> PipelineOutput:
+
+        # Only run the gatekeeper if a raw_image is actually provided
+        if raw_image is not None:
+            labels = ["a Halfmoon Betta fish", "a common fish like tilapia, catfish, or carp"]
+            clip_results = self.classifier(raw_image, candidate_labels=labels)
+            
+            top_prediction = clip_results[0]['label']
+            confidence = clip_results[0]['score']
+            
+            if top_prediction != "a Halfmoon Betta fish" or confidence < 0.70:
+                raise ValueError(f"This image is probably not a betta fish. Please upload a halfmoon betta fish image.")
+
+        
         # runs the image tensor through detection, uncertainty math, and threshold checks
         image_on_device = image_tensor.to(self.device)
         heatmaps, covariances = self.model(image_on_device)
@@ -89,5 +110,25 @@ class AssessmentPipeline:
             sigma_hat = predicted_keypoint_sigma(jacobian, per_keypoint_covariances) * self.tsi_scales.get(criterion_key, 1.0)
 
             results.append(evaluate_criterion(criterion_key, measurement, threshold, uncertainty, tsi, sigma_hat))
+            
+            mean_var_x = np.mean(per_keypoint_covariances[:, 0, 0])
+            mean_var_y = np.mean(per_keypoint_covariances[:, 1, 1])
+            # print(f"\n{'='*50}")
+            # print(f"CRITERION: {criterion_key.upper()}")
+            # print("1. PERCEPTUAL TIER DATA:")
+            # print(f"   - Covariance Array Shape: {per_keypoint_covariances.shape}")
+            # print(f"   - Mean Raw Variance (X):  {mean_var_x:.4f} px²")
+            # print(f"   - Mean Raw Variance (Y):  {mean_var_y:.4f} px²")
 
+            # print("2. ANALYTICAL TIER DATA:")
+            # print(f"   - Geometric Measurement:  {measurement:.2f} ± {uncertainty:.2f}")
+            # print(f"   - Pixel Error:     {sigma_hat:.4f} px")
+            # print(f"   - TSI:  {tsi:.4f} px")
+
+            # print("3. DECISIONAL TIER DATA:")
+            # print(f"   - IBC Threshold:          {threshold}")
+            # print(f"   - System Confidence:      {'High (Error < TSI)' if sigma_hat < tsi else 'Low (Error >= TSI)'}")
+            # print(f"   - Final Output Flag:      {results.decision_flag}") # Assuming CriterionResult has decision_flag
+            # print(f"{'='*50}")
+            
         return PipelineOutput(criteria=results, keypoints=means, covariances=per_keypoint_covariances)
