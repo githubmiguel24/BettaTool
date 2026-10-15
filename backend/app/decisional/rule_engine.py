@@ -1,9 +1,13 @@
 # =============================================================================
-# Program Title:    Main System Rule Engine
-# Programmers:      Daanay, Maraño, Trinidad, Verceles
-# System Fit:       Part of the Decisional tier/module, its called once per criterion, 
-#                   the output is used in the Assessment Report. Also handles the 
-#                   caudal angle criterion classifications.
+# Program Title       : Main Rule Engine
+# # Programmers       : Daanay, Kurt Michael M.
+#                       Trinidad, Charles Miguel L.
+#                       Verceles, Rogel Cristian S.
+
+# System Fit          : Part of the Decisional tier/module, its called once per criterion, 
+#                       the output is used in the Assessment Report. Also handles the 
+#                       caudal angle criterion classifications.
+
 # Written:          September 12, 2026
 # Revised:          October 14, 2026 
 # Purpose:          Main gate that decides if the output can be trusted. It defers 
@@ -17,7 +21,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 
-from app.analytical.tsi import is_confident
+from app.analytical.main_analytical import is_confident
 from app.decisional.ibc_standards import CAUDAL_SPREAD_ANGLE_BANDS, CRITERION_THRESHOLDS, UPPER_BOUND_RATIOS
 
 

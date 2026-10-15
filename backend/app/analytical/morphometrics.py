@@ -1,27 +1,31 @@
 # =============================================================================
-# Program Title : IBC Morphometric Functions
-# Programmers   : Daanay, Maraño, Trinidad, Verceles
-# System Fit    : Betta Fish Quality Assessment Model > Analytical Tier.
-#                 app/pipeline.py loops over MORPHOMETRIC_FUNCTIONS and, for each
-#                 criterion, passes the 26-value keypoint vector from the
-#                 Perceptual Tier to the matching function. The criterion keys
-#                 are the same keys used by the API and the frontend.
-# Written       : September 10, 2026
-# Revised       : October 4, 2026 (last saved);
-#                 October 14, 2026 (header block and comments for documentation)
-# Purpose       : Computes the five measurements graded under the IBC standards:
-#                 the caudal spread angle, the dorsal, anal and caudal
-#                 fin-to-body length ratios, and the anal fin length-to-width
-#                 ratio.
-# Data / Algo   : Data: flat NumPy vector x of 26 values (13 keypoints x 2);
-#                 Keypoint enum used as the index; dictionary
-#                 MORPHOMETRIC_FUNCTIONS (criterion key -> function).
-#                 Algorithms: Euclidean distance; midpoints of the caudal
-#                 peduncle and the fin bases; signed angle with
-#                 atan2(cross, dot). Caudal spread = |angle of the upper tip -
-#                 angle of the lower tip|, both measured from the fin's mid-ray.
-#                 Control: sequence of small helper functions; no loops or
-#                 branches.
+# Program Title     : IBC Morphometric Functions
+
+# Programmers       : Daanay, Kurt Michael M.
+#                     Trinidad, Charles Miguel L.
+#                     Verceles, Rogel Cristian S.
+
+# System Fit        : Part of the Analytical Tier.
+#                     app/pipeline.py loops over MORPHOMETRIC_FUNCTIONS and, for each
+#                     criterion, passes the 26-value keypoint vector from the
+#                     Perceptual Tier to the matching function. The criterion keys
+#                     are the same keys used by the API and the frontend.
+
+# Written           : September 10, 2026
+# Revised           : October 4, 2026;
+
+# Purpose           : Computes the five measurements graded under the IBC standards:
+#                     the caudal spread angle, the dorsal, anal and caudal
+#                     fin-to-body length ratios, and the anal fin length-to-width
+#                     ratio.
+
+# Data Structures   : flat NumPy vector x of 26 values (13 keypoints x 2);
+#                     Keypoint enum used as the index; dictionary
+#                     MORPHOMETRIC_FUNCTIONS (criterion key -> function).
+
+# Algorithms        : Euclidean distance
+
+# Control           :  sequence of small helper functions; no loops or branches.
 # =============================================================================
 
 # computes IBC morphometric ratios and angles from keypoint coordinates
