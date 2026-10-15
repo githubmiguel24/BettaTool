@@ -1,20 +1,30 @@
 # =============================================================================
-# Program Title:    Final Quality Assessment Evaluator
-# Programmers:      Daanay, Trinidad, Verceles
-# System Fit:       Acts as the final formatting step of the Decisional Tier before reporting. 
-#                   It compiles the individual criterion decisions into an overall grading outcome 
-#                   and confidence interval for the frontend or PDF export.
-# Written:          September 15, 2026
-# Revised:          October 15, 2026
-# Purpose:          Computes the overall Betta fish quality tier and an overall system confidence 
-#                   score by evaluating the collective pass, fault, and deferral decisions across 
-#                   all measured IBC criteria.
-# Data Structure:   Uses a tuple (`QUALITY_TIERS`) for sequential tier mapping, a dictionary comprehension 
-#                   to map criterion keys to decisions, takes a list of `MeasurementResult` objects as input, 
-#                   and returns a `FinalAssessment` schema data class.
-# Algorithm:        N/A
-# Control:          Uses an if/else conditional block to handle completely inconclusive (fully deferred) 
-#                   assessments versus scorable ones.
+# Program Title     : Final Quality Assessment Evaluator
+
+# Programmers       : Daanay, Kurt Michael M.
+#                     Trinidad, Charles Miguel L.
+#                     Verceles, Rogel Cristian S.
+
+# System Fit        : Acts as the final formatting step of the Decisional Tier before reporting. 
+#                     It compiles the individual criterion decisions into an overall grading outcome 
+#                     and confidence interval for the frontend or PDF export.
+
+
+# Written           : September 15, 2026
+# Revised           : October 15, 2026
+
+# Purpose           : Computes the overall Betta fish quality tier and an overall system confidence 
+#                     score by evaluating the collective pass, fault, and deferral decisions across 
+#                     all measured IBC criteria.
+
+# Data Structure    : Uses a tuple (`QUALITY_TIERS`) for sequential tier mapping, a dictionary comprehension 
+#                     to map criterion keys to decisions, takes a list of `MeasurementResult` objects as input, 
+#                     and returns a `FinalAssessment` schema data class.
+
+# Algorithm         : N/A
+
+# Control           : Uses an if/else conditional block to handle completely inconclusive (fully deferred) 
+#                     assessments versus scorable ones.
 # =============================================================================
 
 from __future__ import annotations
