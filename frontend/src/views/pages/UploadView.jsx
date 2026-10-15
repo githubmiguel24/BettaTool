@@ -306,7 +306,7 @@ function UploadView() {
             <div>
               <p className="text-sm text-slate-400">Model</p>
               <p className="mt-1 text-base font-medium text-slate-700">
-                {report?.model_name ?? "HRNet-W32"}
+                {report?.model_name ?? "Betta Quality Assessment Model"}
               </p>
             </div>
           </div>
