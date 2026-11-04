@@ -11,7 +11,7 @@ const navItems = [
 ];
 
 function DashboardLayout({
-  title = "Betta Quality Assessment Tool",
+  title = "Betta Fish Quality Assessment Model",
   actions,
   children,
 }) {

@@ -12,7 +12,7 @@ function ExportPdfButton({ targetRef, filename, disabled = false }) {
     try {
       await exportElementToPdf(targetRef.current, {
         filename,
-        title: "Betta Quality Assessment Report",
+        title: "Betta Fish Quality Assessment Report",
       });
     } catch (err) {
       window.alert(`PDF export failed: ${err.message}`);
