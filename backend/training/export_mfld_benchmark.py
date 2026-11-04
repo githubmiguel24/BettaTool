@@ -6,10 +6,14 @@ from pathlib import Path
 
 import numpy as np
 
-from app.analytical.measurement_factor import load_tsi_scales
-from app.analytical.jacobian import numerical_jacobian
+from app.analytical.main_analytical import (
+    compute_tsi,
+    is_confident,
+    load_tsi_scales,
+    numerical_jacobian,
+    predicted_keypoint_sigma,
+)
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
-from app.analytical.tsi import compute_tsi, is_confident, predicted_keypoint_sigma
 from app.decisional.ibc_standards import CRITERION_THRESHOLDS
 from app.perception.keypoints import KEYPOINT_SHORT_CODES as K
 from app.reports.labels import CRITERION_LABELS, KEYPOINT_LABELS

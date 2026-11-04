@@ -3,24 +3,41 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from transformers import pipeline
+from functools import lru_cache
 
 import numpy as np
 import torch
 
 from app.perception.geometry import AffineTransform
-from app.analytical.measurement_factor import load_tsi_scales, load_uncertainty_scales
-from app.analytical.gum_propagation import (
+from app.analytical.main_analytical import (
     assemble_block_covariance,
     combined_uncertainty,
+    compute_tsi,
     expanded_uncertainty,
+    load_tsi_scales,
+    load_uncertainty_scales,
+    numerical_jacobian,
+    predicted_keypoint_sigma,
 )
-from app.analytical.jacobian import numerical_jacobian
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
-from app.analytical.tsi import compute_tsi, predicted_keypoint_sigma
 from app.decisional.rule_engine import CriterionResult, evaluate_criterion, CRITERION_THRESHOLDS
 from app.perception.heatmap import soft_argmax
 from app.perception.hrnet import HRNetKeypointDetector
+
+
+BETTA_CLASSIFIER_MODEL = "openai/clip-vit-base-patch32"
+BETTA_LABEL = "a Halfmoon Betta fish"
+NOT_BETTA_LABEL = "a common fish like tilapia, catfish, or carp"
+BETTA_MIN_CONFIDENCE = 0.70
+
+
+@lru_cache(maxsize=2)
+def _load_betta_classifier(clip_device: int):
+    # zero-shot CLIP model for the identification check; imported here so the rest of the backend
+    # does not need transformers, and cached so the model is loaded once, not on every upload
+    from transformers import pipeline as hf_pipeline
+
+    return hf_pipeline("zero-shot-image-classification", model=BETTA_CLASSIFIER_MODEL, device=clip_device)
 
 
 @dataclass
@@ -48,13 +65,15 @@ class AssessmentPipeline:
         # per-criterion scale on sigma_hat for the TSI gate, fitted on val, same measurement_factor block
         self.tsi_scales = load_tsi_scales() if tsi_scales is None else tsi_scales
 
-        #initialization for the identification check
-        clip_device = 0 if "cuda" in device else -1
-        self.classifier = pipeline(
-            "zero-shot-image-classification", 
-            model="openai/clip-vit-base-patch32", 
-            device=clip_device
-        )
+        # identification check: the CLIP model is loaded lazily on the first image that needs it
+        self._clip_device = 0 if "cuda" in device else -1
+        self.classifier = None
+
+    def _get_classifier(self):
+        if self.classifier is None:
+            self.classifier = _load_betta_classifier(self._clip_device)
+        return self.classifier
+
     @torch.no_grad()
     def analyze(self, image_tensor: torch.Tensor, raw_image) -> list[CriterionResult]:
         # wrapper around analyze_detailed that just returns the criteria list
@@ -70,16 +89,15 @@ class AssessmentPipeline:
 
         # Only run the gatekeeper if a raw_image is actually provided
         if raw_image is not None:
-            labels = ["a Halfmoon Betta fish", "a common fish like tilapia, catfish, or carp"]
-            clip_results = self.classifier(raw_image, candidate_labels=labels)
-            
-            top_prediction = clip_results[0]['label']
-            confidence = clip_results[0]['score']
-            
-            if top_prediction != "a Halfmoon Betta fish" or confidence < 0.70:
-                raise ValueError(f"This image is probably not a betta fish. Please upload a halfmoon betta fish image.")
+            labels = [BETTA_LABEL, NOT_BETTA_LABEL]
+            clip_results = self._get_classifier()(raw_image, candidate_labels=labels)
 
-        
+            top_prediction = clip_results[0]["label"]
+            confidence = clip_results[0]["score"]
+
+            if top_prediction != BETTA_LABEL or confidence < BETTA_MIN_CONFIDENCE:
+                raise ValueError("This image is probably not a betta fish. Please upload a halfmoon betta fish image.")
+
         # runs the image tensor through detection, uncertainty math, and threshold checks
         image_on_device = image_tensor.to(self.device)
         heatmaps, covariances = self.model(image_on_device)

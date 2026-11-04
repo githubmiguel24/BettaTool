@@ -53,7 +53,7 @@ async def analyze_image(file: UploadFile = File(...)) -> AssessmentReport:
     tensor, to_crop = preprocess_image(image)
     to_original = to_crop.inverse()
 
-    pipeline = AssessmentPipeline(bundle.model, device="cuda") #device = bundle.device for cpu
+    pipeline = AssessmentPipeline(bundle.model, device=bundle.device)
 
     try:
         # Pass the pil_image into the raw_image parameter

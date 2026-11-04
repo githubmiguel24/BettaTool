@@ -12,9 +12,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from app.analytical.jacobian import numerical_jacobian
+from app.analytical.main_analytical import compute_tsi, numerical_jacobian, predicted_keypoint_sigma
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
-from app.analytical.tsi import compute_tsi, predicted_keypoint_sigma
 from app.decisional.ibc_standards import CRITERION_THRESHOLDS
 from app.decisional.rule_engine import classify
 from training.mfld_full_comparison import criterion_keypoints
@@ -58,7 +57,7 @@ def subset_for_criterion(p: Predictions, fn) -> Predictions:
 
 
 def load_calibration_scales(path: str | Path) -> dict[str, float]:
-    from app.analytical.measurement_factor import load_tsi_scales
+    from app.analytical.main_analytical import load_tsi_scales
     return load_tsi_scales(path)
 
 
@@ -108,7 +107,7 @@ def binary_label(criterion_key: str, value: float, caudal_rule: str = "ibc") -> 
 
 def gate_decisions(criterion_key: str, q: dict[str, np.ndarray], scale: float, caudal_rule: str = "ibc") -> tuple[np.ndarray, np.ndarray]:
     """Returns (actual, predicted) string arrays, predicted in {"Pass","Fault","Defer"}.
-    Confident iff scale * sigma_hat < TSI (exactly app.analytical.tsi.is_confident)."""
+    Confident iff scale * sigma_hat < TSI (exactly app.analytical.main_analytical.is_confident)."""
     confident = scale * q["sigma_hat"] < q["tsi"]
     actual = np.array([binary_label(criterion_key, v, caudal_rule) for v in q["y_true"]])
     predicted = np.array([binary_label(criterion_key, v, caudal_rule) if c else "Defer" for v, c in zip(q["y_hat"], confident)])

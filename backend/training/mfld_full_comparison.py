@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 from app.analytical.morphometrics import MORPHOMETRIC_FUNCTIONS
-from app.analytical.jacobian import numerical_jacobian
+from app.analytical.main_analytical import numerical_jacobian
 from app.perception.keypoints import KEYPOINT_SHORT_CODES as K
 from app.decisional.rule_engine import classify
 from training.metrics.localization import pck_at_alpha

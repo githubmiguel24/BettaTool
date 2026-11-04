@@ -137,3 +137,13 @@ def _load_criterion_field(field: str, path: str | Path | None) -> dict[str, floa
         return {}
     block = (yaml.safe_load(path.read_text()) or {}).get(CONFIG_KEY) or {}
     return {key: float(entry[field]) for key, entry in block.items()}
+
+
+def load_uncertainty_scales(path: str | Path | None = None) -> dict[str, float]:
+    # per-criterion scales on the reported U(y); empty dict (=> all 1.0) if the config has no measurement_factor block
+    return _load_criterion_field("scale", path)
+
+
+def load_tsi_scales(path: str | Path | None = None) -> dict[str, float]:
+    # per-criterion scales on sigma_hat for the TSI gate; empty dict (=> all 1.0) if the config has no measurement_factor block
+    return _load_criterion_field("tsi_scale", path)

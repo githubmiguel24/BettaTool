@@ -13,3 +13,4 @@ pandas>=2.2
 opencv-python-headless>=4.10
 pillow>=10.4
 pyyaml>=6.0
+transformers>=4.40  # CLIP model (openai/clip-vit-base-patch32) for the Betta identification check; downloaded on first use
