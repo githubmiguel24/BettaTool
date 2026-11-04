@@ -1,0 +1,13 @@
+comparison,criterion,n_pairs,ours_correct,mfld_correct,b,c,chi2,p_exact,p_chi2,p,method,p_holm,conclusion
+deferral,caudal-spread-angle,133,133,133,0,0,0.0000,1.0000,1.0000,1.0000,no discordant pairs,1.0000,no difference (identical decisions)
+deferral,dorsal-body-ratio,121,120,113,1,8,4.0000,0.0391,0.0455,0.0391,exact binomial,0.1953,not significant
+deferral,anal-body-ratio,196,195,190,0,5,3.2000,0.0625,0.0736,0.0625,exact binomial,0.2500,not significant
+deferral,caudal-body-ratio,236,236,233,0,3,1.3333,0.2500,0.2482,0.2500,exact binomial,0.7500,not significant
+deferral,anal-length-width-ratio,201,200,197,0,3,1.3333,0.2500,0.2482,0.2500,exact binomial,0.7500,not significant
+deferral,ALL CRITERIA (pooled),887,884,866,1,19,14.4500,0.0000,0.0001,0.0000,exact binomial,,significant: proposed better
+forced,caudal-spread-angle,247,247,247,0,0,0.0000,1.0000,1.0000,1.0000,no discordant pairs,1.0000,no difference (identical decisions)
+forced,dorsal-body-ratio,247,217,206,13,24,2.7027,0.0989,0.1002,0.1002,chi-square (continuity corrected),0.4007,not significant
+forced,anal-body-ratio,247,237,228,4,13,3.7647,0.0490,0.0523,0.0490,exact binomial,0.2452,not significant
+forced,caudal-body-ratio,242,241,238,0,3,1.3333,0.2500,0.2482,0.2500,exact binomial,0.7500,not significant
+forced,anal-length-width-ratio,247,235,234,6,7,0.0000,1.0000,1.0000,1.0000,exact binomial,1.0000,not significant
+forced,ALL CRITERIA (pooled),1230,1177,1153,23,47,7.5571,0.0056,0.0060,0.0060,chi-square (continuity corrected),,significant: proposed better
